@@ -1,5 +1,6 @@
 import { BlogPost, GmbPost, GmbReply, ContentResponse } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
+import { isValidUrl } from '@/lib/utils';
 
 // Check if Google Sheets credentials are configured
 function isConfigured(): boolean {
@@ -78,7 +79,7 @@ function parseBlogs(rows: string[][]): BlogPost[] {
       keyword: row[keywordIndex] || '',
       url: sanitizeBlogUrl(row[urlIndex] || ''),
     };
-  }).filter((blog) => blog.date && blog.practiceName && blog.blogTitle && blog.url);
+  }).filter((blog) => blog.date && blog.practiceName && blog.blogTitle && isValidUrl(blog.url));
 }
 
 // Parse GMB posts from sheet data
@@ -107,7 +108,7 @@ function parseGmbPosts(rows: string[][]): GmbPost[] {
       keyword: row[keywordIndex] || '',
       url: row[urlIndex] || '',
     };
-  }).filter((post) => post.date && post.practiceName && post.postTitle && post.url);
+  }).filter((post) => post.date && post.practiceName && post.postTitle && isValidUrl(post.url));
 }
 
 // Parse replies from sheet data
@@ -127,7 +128,7 @@ function parseReplies(rows: string[][]): GmbReply[] {
     accountName: row[accountIndex] || '',
     reply: row[replyIndex] || '',
     url: row[urlIndex] || '',
-  })).filter((reply) => reply.dateTime && reply.accountName && reply.reply && reply.url);
+  })).filter((reply) => reply.dateTime && reply.accountName && reply.reply && isValidUrl(reply.url));
 }
 
 // Calculate summary statistics

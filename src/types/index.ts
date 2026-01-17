@@ -59,6 +59,22 @@ export interface FilterState {
   dateRange: DateRange;
 }
 
+// Saved filter configuration
+export interface SavedFilter {
+  id: string;
+  name: string;
+  contentType: ContentType;
+  practices: string[];  // Empty array = "all"
+  dateRange: DateRange;
+  createdAt: string;
+}
+
+// Saved filters collection (stored in localStorage)
+export interface SavedFiltersStore {
+  version: number;
+  filters: SavedFilter[];
+}
+
 // Sort state
 export interface SortState {
   column: string;

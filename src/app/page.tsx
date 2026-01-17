@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ContentType, DateRange } from '@/types';
+import { ContentType, DateRange, SavedFilter } from '@/types';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
+import { useSavedFilters } from '@/hooks/useSavedFilters';
 import { exportToCSV } from '@/lib/utils';
 import { SummaryCards } from '@/components/SummaryCards';
 import { ContentTabs } from '@/components/ContentTabs';
@@ -12,11 +13,14 @@ import { DataTable } from '@/components/DataTable';
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<ContentType>('blogs');
-  const [selectedPractice, setSelectedPractice] = useState('all');
+  const [selectedPractices, setSelectedPractices] = useState<string[]>([]);
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange>('7d');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const { targetRef: tableHeaderRef, isIntersecting } = useTableHeaderObserver();
+
+  // Saved filters
+  const { saveFilter, deleteFilter, getFiltersForTab } = useSavedFilters();
 
   // Update visibility based on intersection
   useEffect(() => {
@@ -32,7 +36,7 @@ export default function Dashboard() {
     filteredGmbPosts,
     filteredReplies,
     filterCounts,
-  } = useContentData(selectedPractice, selectedDateRange, activeTab);
+  } = useContentData(selectedPractices, selectedDateRange);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -70,8 +74,27 @@ export default function Dashboard() {
   // Reset practice filter when switching tabs (practice vs account)
   const handleTabChange = (tab: ContentType) => {
     setActiveTab(tab);
-    setSelectedPractice('all');
+    setSelectedPractices([]);
   };
+
+  // Apply a saved filter
+  const handleApplyFilter = (filter: SavedFilter) => {
+    setSelectedPractices(filter.practices);
+    setSelectedDateRange(filter.dateRange);
+  };
+
+  // Save the current filter configuration
+  const handleSaveFilter = (name: string) => {
+    saveFilter({
+      name,
+      contentType: activeTab,
+      practices: selectedPractices,
+      dateRange: selectedDateRange,
+    });
+  };
+
+  // Get saved filters for the current tab
+  const currentTabFilters = getFiltersForTab(activeTab);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -154,11 +177,15 @@ export default function Dashboard() {
               contentType={activeTab}
               practices={data?.practices ?? []}
               accounts={data?.accounts ?? []}
-              selectedPractice={selectedPractice}
+              selectedPractices={selectedPractices}
               selectedDateRange={selectedDateRange}
-              onPracticeChange={setSelectedPractice}
+              onPracticesChange={setSelectedPractices}
               onDateRangeChange={setSelectedDateRange}
               onExport={handleExport}
+              savedFilters={currentTabFilters}
+              onApplyFilter={handleApplyFilter}
+              onSaveFilter={handleSaveFilter}
+              onDeleteFilter={deleteFilter}
             />
           </div>
 

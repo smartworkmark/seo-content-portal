@@ -54,44 +54,78 @@ export function isToday(dateString: string): boolean {
   );
 }
 
-// Filter blogs by practice and date range
+// Validate if a string is a legitimate URL
+export function isValidUrl(url: string | undefined | null): boolean {
+  if (!url || typeof url !== 'string' || url.trim() === '') {
+    return false;
+  }
+
+  const trimmedUrl = url.trim();
+
+  // Reject common placeholder text
+  const placeholders = ['tbd', 'pending', 'n/a', 'na', 'none', 'coming soon', 'todo'];
+  if (placeholders.includes(trimmedUrl.toLowerCase())) {
+    return false;
+  }
+
+  // Prepare URL for validation - add https:// if no protocol
+  let urlToValidate = trimmedUrl;
+  if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+    urlToValidate = `https://${trimmedUrl}`;
+  }
+
+  // Validate using URL constructor
+  try {
+    const urlObj = new URL(urlToValidate);
+    // Ensure it has a valid hostname with at least one dot (TLD requirement)
+    // This ensures "localhost" or "pending" won't pass, but "example.com" will
+    return urlObj.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
+// Filter blogs by practices and date range
 export function filterBlogs(
   blogs: BlogPost[],
-  practice: string,
+  practices: string[],
   dateRange: DateRange
 ): BlogPost[] {
   return blogs.filter((blog) => {
-    const practiceMatch = practice === 'all' || blog.practiceName === practice;
+    // Empty array means "all"
+    const practiceMatch = practices.length === 0 || practices.includes(blog.practiceName);
     const dateMatch = isWithinDateRange(blog.date, dateRange);
-    const hasUrl = !!blog.url;
+    const hasUrl = isValidUrl(blog.url);
     return practiceMatch && dateMatch && hasUrl;
   });
 }
 
-// Filter GMB posts by practice and date range
+// Filter GMB posts by practices and date range
 export function filterGmbPosts(
   posts: GmbPost[],
-  practice: string,
+  practices: string[],
   dateRange: DateRange
 ): GmbPost[] {
   return posts.filter((post) => {
-    const practiceMatch = practice === 'all' || post.practiceName === practice;
+    // Empty array means "all"
+    const practiceMatch = practices.length === 0 || practices.includes(post.practiceName);
     const dateMatch = isWithinDateRange(post.date, dateRange);
-    const hasUrl = !!post.url;
+    const hasUrl = isValidUrl(post.url);
     return practiceMatch && dateMatch && hasUrl;
   });
 }
 
-// Filter replies by account and date range
+// Filter replies by accounts and date range
 export function filterReplies(
   replies: GmbReply[],
-  account: string,
+  accounts: string[],
   dateRange: DateRange
 ): GmbReply[] {
   return replies.filter((reply) => {
-    const accountMatch = account === 'all' || reply.accountName === account;
+    // Empty array means "all"
+    const accountMatch = accounts.length === 0 || accounts.includes(reply.accountName);
     const dateMatch = isWithinDateRange(reply.dateTime, dateRange);
-    const hasUrl = !!reply.url;
+    const hasUrl = isValidUrl(reply.url);
     return accountMatch && dateMatch && hasUrl;
   });
 }
