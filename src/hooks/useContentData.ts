@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ContentResponse, ContentType, DateRange, BlogPost, GmbPost, GmbReply } from '@/types';
+import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply } from '@/types';
 import { filterBlogs, filterGmbPosts, filterReplies } from '@/lib/utils';
 
 interface UseContentDataReturn {
@@ -16,9 +16,8 @@ interface UseContentDataReturn {
 }
 
 export function useContentData(
-  selectedPractice: string,
-  selectedDateRange: DateRange,
-  contentType: ContentType
+  selectedPractices: string[],
+  selectedDateRange: DateRange
 ): UseContentDataReturn {
   const [data, setData] = useState<ContentResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,6 +46,13 @@ export function useContentData(
 
   useEffect(() => {
     fetchData();
+
+    // Re-sync every hour
+    const interval = setInterval(() => {
+      fetchData();
+    }, 3600000);
+
+    return () => clearInterval(interval);
   }, [fetchData]);
 
   const refresh = useCallback(async () => {
@@ -55,15 +61,15 @@ export function useContentData(
 
   // Apply filters to data
   const filteredBlogs = data
-    ? filterBlogs(data.blogs, selectedPractice, selectedDateRange)
+    ? filterBlogs(data.blogs, selectedPractices, selectedDateRange)
     : [];
 
   const filteredGmbPosts = data
-    ? filterGmbPosts(data.gmbPosts, selectedPractice, selectedDateRange)
+    ? filterGmbPosts(data.gmbPosts, selectedPractices, selectedDateRange)
     : [];
 
   const filteredReplies = data
-    ? filterReplies(data.replies, selectedPractice, selectedDateRange)
+    ? filterReplies(data.replies, selectedPractices, selectedDateRange)
     : [];
 
   // Calculate filtered counts for tab badges
