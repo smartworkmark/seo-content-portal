@@ -1,29 +1,41 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { BlogPost, GmbPost, GmbReply, ContentType, SortState } from '@/types';
+import { useState, useEffect } from 'react';
+import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ContentType, ErrorContentType, SortState } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { TableSkeleton } from './SkeletonLoader';
 
 interface DataTableProps {
-  contentType: ContentType;
+  contentType: ContentType | ErrorContentType;
   blogs: BlogPost[];
   gmbPosts: GmbPost[];
   replies: GmbReply[];
   isLoading: boolean;
+  isErrorMode?: boolean;
+  blogErrors?: BlogError[];
+  gmbPostErrors?: GmbPostError[];
 }
 
 const ITEMS_PER_PAGE = 25;
 
-export function DataTable({ contentType, blogs, gmbPosts, replies, isLoading }: DataTableProps) {
+export function DataTable({
+  contentType,
+  blogs,
+  gmbPosts,
+  replies,
+  isLoading,
+  isErrorMode = false,
+  blogErrors = [],
+  gmbPostErrors = [],
+}: DataTableProps) {
   const [sort, setSort] = useState<SortState>({ column: 'date', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedReply, setExpandedReply] = useState<string | null>(null);
 
-  // Reset page when content type changes
-  useMemo(() => {
+  // Reset page when content type or error mode changes
+  useEffect(() => {
     setCurrentPage(1);
-  }, [contentType]);
+  }, [contentType, isErrorMode]);
 
   const handleSort = (column: string) => {
     setSort((prev) => ({
@@ -59,6 +71,163 @@ export function DataTable({ contentType, blogs, gmbPosts, replies, isLoading }: 
 
   if (isLoading) {
     return <TableSkeleton rows={10} />;
+  }
+
+  // ERROR MODE: Render Blog Errors Table
+  if (isErrorMode && contentType === 'blogs') {
+    const sortedData = sortData(blogErrors, sort.column as keyof BlogError, sort.direction);
+    const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
+    const paginatedData = sortedData.slice(
+      (currentPage - 1) * ITEMS_PER_PAGE,
+      currentPage * ITEMS_PER_PAGE
+    );
+
+    return (
+      <div>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="max-h-[512px] overflow-y-auto overflow-x-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10 bg-gray-50">
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('date')} className="flex items-center gap-1 hover:text-gray-900">
+                      Date <SortIcon column="date" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('practiceName')} className="flex items-center gap-1 hover:text-gray-900">
+                      Practice <SortIcon column="practiceName" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('errorMessage')} className="flex items-center gap-1 hover:text-gray-900">
+                      Error <SortIcon column="errorMessage" />
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {paginatedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-16 text-center text-sm text-gray-500">
+                      No blog errors found for the selected filters.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedData.map((error) => (
+                    <tr key={error.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {formatDate(error.date)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {error.practiceName}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-amber-700">
+                        {error.errorMessage}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={sortedData.length}
+          onPageChange={setCurrentPage}
+        />
+      </div>
+    );
+  }
+
+  // ERROR MODE: Render GMB Post Errors Table
+  if (isErrorMode && contentType === 'gmb-posts') {
+    const sortedData = sortData(gmbPostErrors, sort.column as keyof GmbPostError, sort.direction);
+    const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
+    const paginatedData = sortedData.slice(
+      (currentPage - 1) * ITEMS_PER_PAGE,
+      currentPage * ITEMS_PER_PAGE
+    );
+
+    return (
+      <div>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="max-h-[512px] overflow-y-auto overflow-x-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10 bg-gray-50">
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('date')} className="flex items-center gap-1 hover:text-gray-900">
+                      Date <SortIcon column="date" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('practiceName')} className="flex items-center gap-1 hover:text-gray-900">
+                      Practice <SortIcon column="practiceName" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('postTitle')} className="flex items-center gap-1 hover:text-gray-900">
+                      Post Title <SortIcon column="postTitle" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('keyword')} className="flex items-center gap-1 hover:text-gray-900">
+                      Keyword <SortIcon column="keyword" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('reason')} className="flex items-center gap-1 hover:text-gray-900">
+                      Reason <SortIcon column="reason" />
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {paginatedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-16 text-center text-sm text-gray-500">
+                      No GMB post errors found for the selected filters.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedData.map((error) => {
+                    const isProcessing = error.reason.toLowerCase().includes('processing');
+                    return (
+                      <tr key={error.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                          {formatDate(error.date)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          {error.practiceName}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-900">
+                          {isProcessing ? truncateText(error.postTitle, 50) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">
+                          {isProcessing ? error.keyword : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-amber-700">
+                          {error.reason}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={sortedData.length}
+          onPageChange={setCurrentPage}
+        />
+      </div>
+    );
   }
 
   // Render Blogs Table

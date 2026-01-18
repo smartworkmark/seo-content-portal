@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, ContentResponse } from '@/types';
+import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ContentResponse, ErrorSummaryData } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
 import { isValidUrl } from '@/lib/utils';
 
@@ -55,8 +55,8 @@ function sanitizeBlogUrl(url: string): string {
 
 // Parse blogs from sheet data
 // Actual columns: Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, Notes
-function parseBlogs(rows: string[][]): BlogPost[] {
-  if (rows.length <= 1) return []; // Skip if only header or empty
+function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] } {
+  if (rows.length <= 1) return { valid: [], errors: [] }; // Skip if only header or empty
 
   const headers = rows[0].map((h) => h.toLowerCase().trim());
   const dateIndex = headers.findIndex((h) => h === 'date');
@@ -66,26 +66,46 @@ function parseBlogs(rows: string[][]): BlogPost[] {
   const keywordIndex = headers.findIndex((h) => h === 'keyword');
   const urlIndex = headers.findIndex((h) => h === 'post url');
 
-  return rows.slice(1).map((row, index) => {
+  const valid: BlogPost[] = [];
+  const errors: BlogError[] = [];
+
+  rows.slice(1).forEach((row, index) => {
     const date = row[dateIndex] || '';
     const time = row[timeIndex] || '';
     const dateTime = time ? `${date} ${time}` : date;
+    const practiceName = row[practiceIndex] || '';
+    const blogTitle = row[titleIndex] || '';
+    const keyword = row[keywordIndex] || '';
+    const url = sanitizeBlogUrl(row[urlIndex] || '');
 
-    return {
-      id: `blog-${index + 1}`,
-      date: dateTime,
-      practiceName: row[practiceIndex] || '',
-      blogTitle: row[titleIndex] || '',
-      keyword: row[keywordIndex] || '',
-      url: sanitizeBlogUrl(row[urlIndex] || ''),
-    };
-  }).filter((blog) => blog.date && blog.practiceName && blog.blogTitle && isValidUrl(blog.url));
+    // Check if this is a valid record
+    if (date && practiceName && blogTitle && isValidUrl(url)) {
+      valid.push({
+        id: `blog-${index + 1}`,
+        date: dateTime,
+        practiceName,
+        blogTitle,
+        keyword,
+        url,
+      });
+    } else if (date && practiceName) {
+      // Error record: has date and practice but invalid/missing URL or title
+      errors.push({
+        id: `blog-error-${index + 1}`,
+        date: dateTime,
+        practiceName,
+        errorMessage: blogTitle || 'Missing blog title or invalid URL',
+      });
+    }
+  });
+
+  return { valid, errors };
 }
 
 // Parse GMB posts from sheet data
 // Actual columns: Date, Time, Practice Name, Practice URL, Post Title, Post URL, Make Execution, Keyword
-function parseGmbPosts(rows: string[][]): GmbPost[] {
-  if (rows.length <= 1) return [];
+function parseGmbPosts(rows: string[][]): { valid: GmbPost[]; errors: GmbPostError[] } {
+  if (rows.length <= 1) return { valid: [], errors: [] };
 
   const headers = rows[0].map((h) => h.toLowerCase().trim());
   const dateIndex = headers.findIndex((h) => h === 'date');
@@ -95,20 +115,43 @@ function parseGmbPosts(rows: string[][]): GmbPost[] {
   const keywordIndex = headers.findIndex((h) => h === 'keyword');
   const urlIndex = headers.findIndex((h) => h === 'post url');
 
-  return rows.slice(1).map((row, index) => {
+  const valid: GmbPost[] = [];
+  const errors: GmbPostError[] = [];
+
+  rows.slice(1).forEach((row, index) => {
     const date = row[dateIndex] || '';
     const time = row[timeIndex] || '';
     const dateTime = time ? `${date} ${time}` : date;
+    const practiceName = row[practiceIndex] || '';
+    const postTitle = row[titleIndex] || '';
+    const keyword = row[keywordIndex] || '';
+    const url = row[urlIndex] || '';
 
-    return {
-      id: `gmb-${index + 1}`,
-      date: dateTime,
-      practiceName: row[practiceIndex] || '',
-      postTitle: row[titleIndex] || '',
-      keyword: row[keywordIndex] || '',
-      url: row[urlIndex] || '',
-    };
-  }).filter((post) => post.date && post.practiceName && post.postTitle && isValidUrl(post.url));
+    // Check if this is a valid record
+    if (date && practiceName && postTitle && isValidUrl(url)) {
+      valid.push({
+        id: `gmb-${index + 1}`,
+        date: dateTime,
+        practiceName,
+        postTitle,
+        keyword,
+        url,
+      });
+    } else if (date && practiceName) {
+      // Error record: has date and practice but invalid/missing URL
+      // The URL field value IS the reason (e.g., "processing" or account error)
+      errors.push({
+        id: `gmb-error-${index + 1}`,
+        date: dateTime,
+        practiceName,
+        postTitle,
+        keyword,
+        reason: url || 'Missing or invalid URL',
+      });
+    }
+  });
+
+  return { valid, errors };
 }
 
 // Parse replies from sheet data
@@ -131,6 +174,13 @@ function parseReplies(rows: string[][]): GmbReply[] {
   })).filter((reply) => reply.dateTime && reply.accountName && reply.reply && isValidUrl(reply.url));
 }
 
+// Helper to parse date strings
+function parseDate(dateStr: string): Date {
+  // Try to parse date string (handles formats like "2025-09-15" or "2025-09-15 15:12" or "2025-11-20 17:44")
+  const date = new Date(dateStr);
+  return isNaN(date.getTime()) ? new Date(0) : date;
+}
+
 // Calculate summary statistics
 function calculateSummary(
   blogs: BlogPost[],
@@ -143,12 +193,6 @@ function calculateSummary(
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-
-  const parseDate = (dateStr: string): Date => {
-    // Try to parse date string (handles formats like "2025-09-15" or "2025-09-15 15:12" or "2025-11-20 17:44")
-    const date = new Date(dateStr);
-    return isNaN(date.getTime()) ? new Date(0) : date;
-  };
 
   const blogs7d = blogs.filter((b) => parseDate(b.date) >= sevenDaysAgo).length;
   const gmbPosts7d = gmbPosts.filter((p) => parseDate(p.date) >= sevenDaysAgo).length;
@@ -163,6 +207,25 @@ function calculateSummary(
     gmbPosts7d,
     replies7d,
     todayActivity: todayBlogs + todayPosts + todayReplies,
+  };
+}
+
+// Calculate error summary statistics
+function calculateErrorSummary(
+  blogErrors: BlogError[],
+  gmbPostErrors: GmbPostError[]
+): ErrorSummaryData {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  sevenDaysAgo.setHours(0, 0, 0, 0);
+
+  const recentBlogErrors = blogErrors.filter((e) => parseDate(e.date) >= sevenDaysAgo).length;
+  const recentGmbErrors = gmbPostErrors.filter((e) => parseDate(e.date) >= sevenDaysAgo).length;
+
+  return {
+    blogErrors: blogErrors.length,
+    gmbPostErrors: gmbPostErrors.length,
+    recentErrors: recentBlogErrors + recentGmbErrors,
   };
 }
 
@@ -182,19 +245,23 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       fetchSheet('GMB Replies'),
     ]);
 
-    const blogs = parseBlogs(blogsData);
-    const gmbPosts = parseGmbPosts(gmbPostsData);
+    const { valid: blogs, errors: blogErrors } = parseBlogs(blogsData);
+    const { valid: gmbPosts, errors: gmbPostErrors } = parseGmbPosts(gmbPostsData);
     const replies = parseReplies(repliesData);
 
     // Sort by date descending
     blogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     gmbPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     replies.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
+    blogErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    gmbPostErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    // Extract unique practices and accounts
+    // Extract unique practices and accounts (include practices from errors too)
     const practices = [...new Set([
       ...blogs.map((b) => b.practiceName),
       ...gmbPosts.map((p) => p.practiceName),
+      ...blogErrors.map((e) => e.practiceName),
+      ...gmbPostErrors.map((e) => e.practiceName),
     ])].sort();
 
     const accounts = [...new Set(replies.map((r) => r.accountName))].sort();
@@ -206,6 +273,9 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       summary: calculateSummary(blogs, gmbPosts, replies),
       practices,
       accounts,
+      blogErrors,
+      gmbPostErrors,
+      errorSummary: calculateErrorSummary(blogErrors, gmbPostErrors),
     };
   } catch (error) {
     console.error('Error fetching from Google Sheets, falling back to mock data:', error);

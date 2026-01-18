@@ -77,18 +77,40 @@ The application follows a specific data flow pattern:
 - Filters are tab-specific (blogs, gmb-posts, replies have separate saved filters)
 - Empty practices array `[]` means "all practices" - simplifies storage/comparison
 
+**Error Log Toggle Feature:**
+- Toggle between "Records" and "Errors" view modes via `ViewModeToggle` component
+- Error records are those filtered out during validation (invalid URLs, missing required fields)
+- Color scheme shifts from indigo (normal mode) to amber (error mode)
+- Error mode shows `ErrorBanner` explaining error records are kept for reference
+- **Error data structure:**
+  - `BlogError`: Contains `date`, `practiceName`, `errorMessage` (the blogTitle field contains the error)
+  - `GmbPostError`: Contains `date`, `practiceName`, `postTitle`, `keyword`, `reason` (the URL field value)
+- **Error mode differences:**
+  - No Replies tab (only Blog Errors and GMB Errors)
+  - Summary cards show error counts instead of normal counts
+  - Tables display different columns based on error type
+  - Blog errors: Date, Practice, Error (no Keyword, no URL)
+  - GMB errors: Two layouts based on reason:
+    - If reason contains "processing": Date, Practice, Post Title, Keyword, Reason
+    - Otherwise: Date, Practice, Reason (shows "-" for title/keyword)
+- Error records are parsed during data fetching in `parseBlogs()` and `parseGmbPosts()`
+- Errors can be filtered by practice and date range (same as normal records)
+- Background color changes to `bg-amber-50` in error mode
+
 ### Important Files to Understand
 
 **Data Layer:**
 - `src/lib/google-sheets.ts` - Core data fetching, parsing, and server-side filtering
   - `sanitizeBlogUrl()` - Removes localhost prefixes, adds https:// protocol
-  - `parseBlogs()`, `parseGmbPosts()`, `parseReplies()` - Parse and filter sheet data
+  - `parseBlogs()`, `parseGmbPosts()`, `parseReplies()` - Parse and filter sheet data, return both valid records and errors
   - `calculateSummary()` - Generate dashboard statistics
+  - `calculateErrorSummary()` - Generate error statistics
 
 **Utilities:**
 - `src/lib/utils.ts` - Core utility functions
   - `isValidUrl()` - **CRITICAL**: Validates URLs, accepts URLs without protocol
   - `filterBlogs()`, `filterGmbPosts()`, `filterReplies()` - Client-side filtering (accept `string[]` for practices)
+  - `filterBlogErrors()`, `filterGmbPostErrors()` - Error record filtering
   - All filters apply practice/account, date range, AND URL validation
 - `src/lib/saved-filters.ts` - localStorage CRUD for saved filters
   - `getSavedFilters()`, `saveFilter()`, `deleteFilter()`
@@ -96,8 +118,18 @@ The application follows a specific data flow pattern:
 **Types:**
 - `src/types/index.ts` - All TypeScript interfaces and types
   - Content types: `BlogPost`, `GmbPost`, `GmbReply`
+  - Error types: `BlogError`, `GmbPostError`, `ErrorSummaryData`
+  - `ErrorContentType` - Content type for error mode (no replies)
   - `SavedFilter`, `SavedFiltersStore` - Saved filter persistence
   - Column configurations for tables
+
+**Components:**
+- `src/components/ViewModeToggle.tsx` - Toggle between Records and Errors modes
+- `src/components/ErrorBanner.tsx` - Warning banner displayed in error mode
+- `src/components/SummaryCard.tsx` - Supports `isErrorMode` prop for amber styling
+- `src/components/SummaryCards.tsx` - Displays error summary cards in error mode
+- `src/components/ContentTabs.tsx` - Hides Replies tab and uses amber colors in error mode
+- `src/components/DataTable.tsx` - Renders error tables with different column layouts
 
 ## Google Sheets Schema
 
@@ -152,6 +184,9 @@ When modifying URL handling, understand the validation flow:
 6. **API route handles its own caching** - Don't add caching in hook; it's controlled by API response headers
 7. **sanitizeBlogUrl only applies to blogs** - GMB posts and replies use raw URLs from sheets
 8. **SavedFiltersBar only shows when needed** - Requires either existing saved filters OR selected practices to appear
+9. **Error mode has no Replies tab** - Replies don't have error tracking, so error mode only shows blogs and GMB posts
+10. **Error blogTitle is the error message** - For blog errors, the `blogTitle` field from the sheet contains the error message
+11. **GMB error URL is the reason** - For GMB post errors, the `url` field contains the reason ("processing", account errors, etc.)
 
 ## Environment Variables
 

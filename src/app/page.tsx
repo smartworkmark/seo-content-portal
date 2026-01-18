@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ContentType, DateRange, SavedFilter } from '@/types';
+import { ContentType, ErrorContentType, DateRange, SavedFilter } from '@/types';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
 import { useSavedFilters } from '@/hooks/useSavedFilters';
@@ -10,13 +10,16 @@ import { SummaryCards } from '@/components/SummaryCards';
 import { ContentTabs } from '@/components/ContentTabs';
 import { Filters } from '@/components/Filters';
 import { DataTable } from '@/components/DataTable';
+import { ViewModeToggle } from '@/components/ViewModeToggle';
+import { ErrorBanner } from '@/components/ErrorBanner';
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<ContentType>('blogs');
+  const [activeTab, setActiveTab] = useState<ContentType | ErrorContentType>('blogs');
   const [selectedPractices, setSelectedPractices] = useState<string[]>([]);
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange>('7d');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
+  const [showErrors, setShowErrors] = useState(false);
   const { targetRef: tableHeaderRef, isIntersecting } = useTableHeaderObserver();
 
   // Saved filters
@@ -36,7 +39,20 @@ export default function Dashboard() {
     filteredGmbPosts,
     filteredReplies,
     filterCounts,
+    filteredBlogErrors,
+    filteredGmbPostErrors,
+    errorFilterCounts,
+    errorSummary,
   } = useContentData(selectedPractices, selectedDateRange);
+
+  // Handle error mode toggle
+  const handleToggleErrorMode = (isErrorMode: boolean) => {
+    setShowErrors(isErrorMode);
+    // If switching to error mode and on replies tab, switch to blogs
+    if (isErrorMode && activeTab === 'replies') {
+      setActiveTab('blogs');
+    }
+  };
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -72,7 +88,7 @@ export default function Dashboard() {
   };
 
   // Reset practice filter when switching tabs (practice vs account)
-  const handleTabChange = (tab: ContentType) => {
+  const handleTabChange = (tab: ContentType | ErrorContentType) => {
     setActiveTab(tab);
     setSelectedPractices([]);
   };
@@ -85,19 +101,22 @@ export default function Dashboard() {
 
   // Save the current filter configuration
   const handleSaveFilter = (name: string) => {
-    saveFilter({
-      name,
-      contentType: activeTab,
-      practices: selectedPractices,
-      dateRange: selectedDateRange,
-    });
+    // Only save filters for normal mode (not error mode)
+    if (!showErrors) {
+      saveFilter({
+        name,
+        contentType: activeTab as ContentType,
+        practices: selectedPractices,
+        dateRange: selectedDateRange,
+      });
+    }
   };
 
-  // Get saved filters for the current tab
-  const currentTabFilters = getFiltersForTab(activeTab);
+  // Get saved filters for the current tab (only in normal mode)
+  const currentTabFilters = showErrors ? [] : getFiltersForTab(activeTab as ContentType);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className={`min-h-screen ${showErrors ? 'bg-amber-50' : 'bg-gray-50'}`}>
       {/* Header */}
       <header className={`
         bg-white border-b border-gray-200
@@ -107,11 +126,21 @@ export default function Dashboard() {
       `}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <h1 className="text-xl font-bold text-gray-900">Content Portal</h1>
+            <div className="flex items-center gap-4">
+              <h1 className="text-xl font-bold text-gray-900">Content Portal</h1>
+              <ViewModeToggle showErrors={showErrors} onToggle={handleToggleErrorMode} />
+            </div>
             <button
               onClick={handleRefresh}
               disabled={isRefreshing || isLoading}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-900 rounded-md hover:bg-indigo-950 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className={`
+                flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-md
+                disabled:opacity-50 disabled:cursor-not-allowed transition-colors
+                ${showErrors
+                  ? 'bg-amber-500 hover:bg-amber-600'
+                  : 'bg-indigo-900 hover:bg-indigo-950'
+                }
+              `}
             >
               <svg
                 className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`}
@@ -157,9 +186,17 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* Error Banner (only in error mode) */}
+        {showErrors && <ErrorBanner />}
+
         {/* Summary Cards */}
         <section className="mb-8">
-          <SummaryCards data={data?.summary ?? null} isLoading={isLoading} />
+          <SummaryCards
+            data={data?.summary ?? null}
+            isLoading={isLoading}
+            isErrorMode={showErrors}
+            errorSummary={errorSummary}
+          />
         </section>
 
         {/* Content Section */}
@@ -169,6 +206,8 @@ export default function Dashboard() {
             activeTab={activeTab}
             onTabChange={handleTabChange}
             counts={filterCounts}
+            isErrorMode={showErrors}
+            errorCounts={errorFilterCounts}
           />
 
           {/* Filters */}
@@ -196,6 +235,9 @@ export default function Dashboard() {
             gmbPosts={filteredGmbPosts}
             replies={filteredReplies}
             isLoading={isLoading}
+            isErrorMode={showErrors}
+            blogErrors={filteredBlogErrors}
+            gmbPostErrors={filteredGmbPostErrors}
           />
         </section>
       </main>

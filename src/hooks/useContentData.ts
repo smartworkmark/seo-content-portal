@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply } from '@/types';
-import { filterBlogs, filterGmbPosts, filterReplies } from '@/lib/utils';
+import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ErrorSummaryData } from '@/types';
+import { filterBlogs, filterGmbPosts, filterReplies, filterBlogErrors, filterGmbPostErrors } from '@/lib/utils';
 
 interface UseContentDataReturn {
   data: ContentResponse | null;
@@ -13,6 +13,13 @@ interface UseContentDataReturn {
   filteredGmbPosts: GmbPost[];
   filteredReplies: GmbReply[];
   filterCounts: { blogs: number; gmbPosts: number; replies: number };
+  // Error data
+  blogErrors: BlogError[];
+  gmbPostErrors: GmbPostError[];
+  filteredBlogErrors: BlogError[];
+  filteredGmbPostErrors: GmbPostError[];
+  errorFilterCounts: { blogs: number; gmbPosts: number };
+  errorSummary: ErrorSummaryData | null;
 }
 
 export function useContentData(
@@ -79,6 +86,25 @@ export function useContentData(
     replies: filteredReplies.length,
   };
 
+  // Error data
+  const blogErrors = data?.blogErrors ?? [];
+  const gmbPostErrors = data?.gmbPostErrors ?? [];
+
+  // Apply filters to error data
+  const filteredBlogErrors = data
+    ? filterBlogErrors(data.blogErrors, selectedPractices, selectedDateRange)
+    : [];
+
+  const filteredGmbPostErrors = data
+    ? filterGmbPostErrors(data.gmbPostErrors, selectedPractices, selectedDateRange)
+    : [];
+
+  // Calculate filtered counts for error tab badges
+  const errorFilterCounts = {
+    blogs: filteredBlogErrors.length,
+    gmbPosts: filteredGmbPostErrors.length,
+  };
+
   return {
     data,
     isLoading,
@@ -88,5 +114,12 @@ export function useContentData(
     filteredGmbPosts,
     filteredReplies,
     filterCounts,
+    // Error data
+    blogErrors,
+    gmbPostErrors,
+    filteredBlogErrors,
+    filteredGmbPostErrors,
+    errorFilterCounts,
+    errorSummary: data?.errorSummary ?? null,
   };
 }

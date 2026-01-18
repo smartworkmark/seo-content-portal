@@ -1,6 +1,9 @@
 // Content Types
 export type ContentType = 'blogs' | 'gmb-posts' | 'replies';
 
+// Error content type (no replies in error mode)
+export type ErrorContentType = 'blogs' | 'gmb-posts';
+
 export type DateRange = '7d' | '30d' | 'all';
 
 // Blog Post
@@ -32,6 +35,31 @@ export interface GmbReply {
   url: string;
 }
 
+// Blog Error (filtered out records)
+export interface BlogError {
+  id: string;
+  date: string;
+  practiceName: string;
+  errorMessage: string;  // The blogTitle field contains the error
+}
+
+// GMB Post Error
+export interface GmbPostError {
+  id: string;
+  date: string;
+  practiceName: string;
+  postTitle: string;     // Only displayed if reason is "processing"
+  keyword: string;       // Only displayed if reason is "processing"
+  reason: string;        // The URL field value ("processing" or "no account found" etc.)
+}
+
+// Error summary for dashboard
+export interface ErrorSummaryData {
+  blogErrors: number;
+  gmbPostErrors: number;
+  recentErrors: number;  // Errors in last 7 days
+}
+
 // Union type for all content
 export type ContentItem = BlogPost | GmbPost | GmbReply;
 
@@ -51,6 +79,9 @@ export interface ContentResponse {
   summary: SummaryData;
   practices: string[];
   accounts: string[];
+  blogErrors: BlogError[];
+  gmbPostErrors: GmbPostError[];
+  errorSummary: ErrorSummaryData;
 }
 
 // Filter state

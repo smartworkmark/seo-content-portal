@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, DateRange } from '@/types';
+import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, DateRange } from '@/types';
 
 // Format date for display
 export function formatDate(dateString: string): string {
@@ -127,6 +127,32 @@ export function filterReplies(
     const dateMatch = isWithinDateRange(reply.dateTime, dateRange);
     const hasUrl = isValidUrl(reply.url);
     return accountMatch && dateMatch && hasUrl;
+  });
+}
+
+// Filter blog errors by practices and date range
+export function filterBlogErrors(
+  errors: BlogError[],
+  practices: string[],
+  dateRange: DateRange
+): BlogError[] {
+  return errors.filter((error) => {
+    const practiceMatch = practices.length === 0 || practices.includes(error.practiceName);
+    const dateMatch = isWithinDateRange(error.date, dateRange);
+    return practiceMatch && dateMatch;
+  });
+}
+
+// Filter GMB post errors by practices and date range
+export function filterGmbPostErrors(
+  errors: GmbPostError[],
+  practices: string[],
+  dateRange: DateRange
+): GmbPostError[] {
+  return errors.filter((error) => {
+    const practiceMatch = practices.length === 0 || practices.includes(error.practiceName);
+    const dateMatch = isWithinDateRange(error.date, dateRange);
+    return practiceMatch && dateMatch;
   });
 }
 

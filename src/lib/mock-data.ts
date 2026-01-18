@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, ContentResponse } from '@/types';
+import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ContentResponse, ErrorSummaryData } from '@/types';
 
 // Sample practice names
 const practices = [
@@ -119,6 +119,73 @@ function generateReplies(count: number): GmbReply[] {
   return replies.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
 }
 
+// Sample error messages for blogs
+const blogErrorMessages = [
+  'Error: Unable to publish to Webflow',
+  'Error: Duplicate content detected',
+  'Error: API rate limit exceeded',
+  'Error: Invalid Webflow collection ID',
+  'Error: Image upload failed',
+];
+
+// Sample GMB error reasons
+const gmbErrorReasons = [
+  'processing',
+  'No GMB account found for this practice',
+  'GMB API authentication failed',
+  'processing',
+  'Account suspended - manual review required',
+  'processing',
+];
+
+// Generate mock blog errors
+function generateBlogErrors(count: number): BlogError[] {
+  const errors: BlogError[] = [];
+  for (let i = 0; i < count; i++) {
+    errors.push({
+      id: `blog-error-${i + 1}`,
+      date: randomDate(90),
+      practiceName: practices[Math.floor(Math.random() * practices.length)],
+      errorMessage: blogErrorMessages[Math.floor(Math.random() * blogErrorMessages.length)],
+    });
+  }
+  return errors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
+// Generate mock GMB post errors
+function generateGmbPostErrors(count: number): GmbPostError[] {
+  const errors: GmbPostError[] = [];
+  for (let i = 0; i < count; i++) {
+    const reason = gmbErrorReasons[Math.floor(Math.random() * gmbErrorReasons.length)];
+    const isProcessing = reason.toLowerCase() === 'processing';
+    errors.push({
+      id: `gmb-error-${i + 1}`,
+      date: randomDate(90),
+      practiceName: practices[Math.floor(Math.random() * practices.length)],
+      postTitle: isProcessing ? gmbPostTitles[Math.floor(Math.random() * gmbPostTitles.length)] : '',
+      keyword: isProcessing ? keywords[Math.floor(Math.random() * keywords.length)] : '',
+      reason,
+    });
+  }
+  return errors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
+// Calculate error summary
+function calculateErrorSummary(blogErrors: BlogError[], gmbPostErrors: GmbPostError[]): ErrorSummaryData {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  sevenDaysAgo.setHours(0, 0, 0, 0);
+
+  const recentBlogErrors = blogErrors.filter((e) => new Date(e.date) >= sevenDaysAgo).length;
+  const recentGmbErrors = gmbPostErrors.filter((e) => new Date(e.date) >= sevenDaysAgo).length;
+
+  return {
+    blogErrors: blogErrors.length,
+    gmbPostErrors: gmbPostErrors.length,
+    recentErrors: recentBlogErrors + recentGmbErrors,
+  };
+}
+
 // Calculate summary data
 function calculateSummary(
   blogs: BlogPost[],
@@ -153,14 +220,24 @@ export function generateMockData(): ContentResponse {
   const blogs = generateBlogs(250);
   const gmbPosts = generateGmbPosts(350);
   const replies = generateReplies(180);
+  const blogErrors = generateBlogErrors(15);
+  const gmbPostErrors = generateGmbPostErrors(25);
 
   return {
     blogs,
     gmbPosts,
     replies,
     summary: calculateSummary(blogs, gmbPosts, replies),
-    practices: [...new Set([...blogs.map((b) => b.practiceName), ...gmbPosts.map((p) => p.practiceName)])].sort(),
+    practices: [...new Set([
+      ...blogs.map((b) => b.practiceName),
+      ...gmbPosts.map((p) => p.practiceName),
+      ...blogErrors.map((e) => e.practiceName),
+      ...gmbPostErrors.map((e) => e.practiceName),
+    ])].sort(),
     accounts: [...new Set(replies.map((r) => r.accountName))].sort(),
+    blogErrors,
+    gmbPostErrors,
+    errorSummary: calculateErrorSummary(blogErrors, gmbPostErrors),
   };
 }
 
