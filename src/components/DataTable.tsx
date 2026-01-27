@@ -5,6 +5,8 @@ import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ContentType, Erro
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { TableSkeleton } from './SkeletonLoader';
 
+const HUBSPOT_URL = 'https://app.hubspot.com/contacts/22697387/record/0-2/';
+
 interface DataTableProps {
   contentType: ContentType | ErrorContentType;
   blogs: BlogPost[];
@@ -100,6 +102,11 @@ export function DataTable({
                     </button>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('companyId')} className="flex items-center gap-1 hover:text-gray-900">
+                      HSID <SortIcon column="companyId" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     <button onClick={() => handleSort('errorMessage')} className="flex items-center gap-1 hover:text-gray-900">
                       Error <SortIcon column="errorMessage" />
                     </button>
@@ -109,7 +116,7 @@ export function DataTable({
               <tbody className="divide-y divide-gray-100">
                 {paginatedData.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="px-4 py-16 text-center text-sm text-gray-500">
+                    <td colSpan={4} className="px-4 py-16 text-center text-sm text-gray-500">
                       No blog errors found for the selected filters.
                     </td>
                   </tr>
@@ -121,6 +128,18 @@ export function DataTable({
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-900">
                         {error.practiceName}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {error.companyId && (
+                          <a
+                            href={`${HUBSPOT_URL}${error.companyId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-900 hover:text-indigo-950 hover:underline"
+                          >
+                            {error.companyId}
+                          </a>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm text-amber-700">
                         {error.errorMessage}
@@ -169,6 +188,11 @@ export function DataTable({
                     </button>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('companyId')} className="flex items-center gap-1 hover:text-gray-900">
+                      HSID <SortIcon column="companyId" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     <button onClick={() => handleSort('postTitle')} className="flex items-center gap-1 hover:text-gray-900">
                       Post Title <SortIcon column="postTitle" />
                     </button>
@@ -188,7 +212,7 @@ export function DataTable({
               <tbody className="divide-y divide-gray-100">
                 {paginatedData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-16 text-center text-sm text-gray-500">
+                    <td colSpan={6} className="px-4 py-16 text-center text-sm text-gray-500">
                       No GMB post errors found for the selected filters.
                     </td>
                   </tr>
@@ -202,6 +226,18 @@ export function DataTable({
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900">
                           {error.practiceName}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {error.companyId && (
+                            <a
+                              href={`${HUBSPOT_URL}${error.companyId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-indigo-900 hover:text-indigo-950 hover:underline"
+                            >
+                              {error.companyId}
+                            </a>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900">
                           {isProcessing ? truncateText(error.postTitle, 50) : '-'}
@@ -257,6 +293,11 @@ export function DataTable({
                   </button>
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <button onClick={() => handleSort('companyId')} className="flex items-center gap-1 hover:text-gray-900">
+                    HSID <SortIcon column="companyId" />
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <button onClick={() => handleSort('blogTitle')} className="flex items-center gap-1 hover:text-gray-900">
                     Blog Title <SortIcon column="blogTitle" />
                   </button>
@@ -274,7 +315,7 @@ export function DataTable({
             <tbody className="divide-y divide-gray-100">
               {paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-16 text-center text-sm text-gray-500">
+                  <td colSpan={6} className="px-4 py-16 text-center text-sm text-gray-500">
                     No blogs found for the selected filters.
                   </td>
                 </tr>
@@ -286,6 +327,18 @@ export function DataTable({
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">
                       {blog.practiceName}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {blog.companyId && (
+                        <a
+                          href={`${HUBSPOT_URL}${blog.companyId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-900 hover:text-indigo-950 hover:underline"
+                        >
+                          {blog.companyId}
+                        </a>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">
                       {truncateText(blog.blogTitle, 50)}
@@ -350,6 +403,11 @@ export function DataTable({
                   </button>
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <button onClick={() => handleSort('companyId')} className="flex items-center gap-1 hover:text-gray-900">
+                    HSID <SortIcon column="companyId" />
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   <button onClick={() => handleSort('postTitle')} className="flex items-center gap-1 hover:text-gray-900">
                     Post Title <SortIcon column="postTitle" />
                   </button>
@@ -367,7 +425,7 @@ export function DataTable({
             <tbody className="divide-y divide-gray-100">
               {paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-16 text-center text-sm text-gray-500">
+                  <td colSpan={6} className="px-4 py-16 text-center text-sm text-gray-500">
                     No GMB posts found for the selected filters.
                   </td>
                 </tr>
@@ -379,6 +437,18 @@ export function DataTable({
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">
                       {post.practiceName}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      {post.companyId && (
+                        <a
+                          href={`${HUBSPOT_URL}${post.companyId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-900 hover:text-indigo-950 hover:underline"
+                        >
+                          {post.companyId}
+                        </a>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">
                       {truncateText(post.postTitle, 50)}

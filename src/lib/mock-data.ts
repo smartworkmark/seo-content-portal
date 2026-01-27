@@ -26,6 +26,9 @@ const keywords = [
   'gum disease',
 ];
 
+// Sample HubSpot company IDs (some empty to simulate missing data)
+const companyIds = ['22697001', '22697002', '22697003', '22697004', '22697005', '', '', ''];
+
 // Sample blog titles
 const blogTitles = [
   '5 Signs You Need a Dental Checkup',
@@ -80,6 +83,7 @@ function generateBlogs(count: number): BlogPost[] {
       id: `blog-${i + 1}`,
       date: randomDate(90),
       practiceName: practices[Math.floor(Math.random() * practices.length)],
+      companyId: companyIds[Math.floor(Math.random() * companyIds.length)],
       blogTitle: blogTitles[Math.floor(Math.random() * blogTitles.length)],
       keyword: keywords[Math.floor(Math.random() * keywords.length)],
       url: `https://example.com/blog/${i + 1}`,
@@ -96,6 +100,7 @@ function generateGmbPosts(count: number): GmbPost[] {
       id: `gmb-${i + 1}`,
       date: randomDate(90),
       practiceName: practices[Math.floor(Math.random() * practices.length)],
+      companyId: companyIds[Math.floor(Math.random() * companyIds.length)],
       postTitle: gmbPostTitles[Math.floor(Math.random() * gmbPostTitles.length)],
       keyword: keywords[Math.floor(Math.random() * keywords.length)],
       url: `https://business.google.com/posts/${i + 1}`,
@@ -146,6 +151,7 @@ function generateBlogErrors(count: number): BlogError[] {
       id: `blog-error-${i + 1}`,
       date: randomDate(90),
       practiceName: practices[Math.floor(Math.random() * practices.length)],
+      companyId: companyIds[Math.floor(Math.random() * companyIds.length)],
       errorMessage: blogErrorMessages[Math.floor(Math.random() * blogErrorMessages.length)],
     });
   }
@@ -162,6 +168,7 @@ function generateGmbPostErrors(count: number): GmbPostError[] {
       id: `gmb-error-${i + 1}`,
       date: randomDate(90),
       practiceName: practices[Math.floor(Math.random() * practices.length)],
+      companyId: companyIds[Math.floor(Math.random() * companyIds.length)],
       postTitle: isProcessing ? gmbPostTitles[Math.floor(Math.random() * gmbPostTitles.length)] : '',
       keyword: isProcessing ? keywords[Math.floor(Math.random() * keywords.length)] : '',
       reason,

@@ -52,6 +52,7 @@ The application follows a specific data flow pattern:
 **Type System:**
 - All content types defined in `src/types/index.ts`
 - Three main content types: `BlogPost`, `GmbPost`, `GmbReply`
+- All blog/GMB types (including error types) include `companyId` for HubSpot integration
 - Unified filtering interface via `DateRange` and filter functions
 - Path alias `@/*` maps to `./src/*`
 
@@ -83,16 +84,14 @@ The application follows a specific data flow pattern:
 - Color scheme shifts from indigo (normal mode) to amber (error mode)
 - Error mode shows `ErrorBanner` explaining error records are kept for reference
 - **Error data structure:**
-  - `BlogError`: Contains `date`, `practiceName`, `errorMessage` (the blogTitle field contains the error)
-  - `GmbPostError`: Contains `date`, `practiceName`, `postTitle`, `keyword`, `reason` (the URL field value)
+  - `BlogError`: Contains `date`, `practiceName`, `companyId`, `errorMessage` (the blogTitle field contains the error)
+  - `GmbPostError`: Contains `date`, `practiceName`, `companyId`, `postTitle`, `keyword`, `reason` (the URL field value)
 - **Error mode differences:**
   - No Replies tab (only Blog Errors and GMB Errors)
   - Summary cards show error counts instead of normal counts
   - Tables display different columns based on error type
-  - Blog errors: Date, Practice, Error (no Keyword, no URL)
-  - GMB errors: Two layouts based on reason:
-    - If reason contains "processing": Date, Practice, Post Title, Keyword, Reason
-    - Otherwise: Date, Practice, Reason (shows "-" for title/keyword)
+  - Blog errors: Date, Practice, HSID, Error (no Keyword, no URL)
+  - GMB errors: Date, Practice, HSID, Post Title, Keyword, Reason (shows "-" for title/keyword if reason is not "processing")
 - Error records are parsed during data fetching in `parseBlogs()` and `parseGmbPosts()`
 - Errors can be filtered by practice and date range (same as normal records)
 - Background color changes to `bg-amber-50` in error mode
@@ -117,8 +116,8 @@ The application follows a specific data flow pattern:
 
 **Types:**
 - `src/types/index.ts` - All TypeScript interfaces and types
-  - Content types: `BlogPost`, `GmbPost`, `GmbReply`
-  - Error types: `BlogError`, `GmbPostError`, `ErrorSummaryData`
+  - Content types: `BlogPost`, `GmbPost`, `GmbReply` (`BlogPost` and `GmbPost` include `companyId`)
+  - Error types: `BlogError`, `GmbPostError`, `ErrorSummaryData` (`BlogError` and `GmbPostError` include `companyId`)
   - `ErrorContentType` - Content type for error mode (no replies)
   - `SavedFilter`, `SavedFiltersStore` - Saved filter persistence
   - Column configurations for tables
@@ -129,19 +128,21 @@ The application follows a specific data flow pattern:
 - `src/components/SummaryCard.tsx` - Supports `isErrorMode` prop for amber styling
 - `src/components/SummaryCards.tsx` - Displays error summary cards in error mode
 - `src/components/ContentTabs.tsx` - Hides Replies tab and uses amber colors in error mode
-- `src/components/DataTable.tsx` - Renders error tables with different column layouts
+- `src/components/DataTable.tsx` - Renders error tables with different column layouts; includes `HUBSPOT_URL` constant for HSID links
 
 ## Google Sheets Schema
 
 The application expects three sheets with specific column structures:
 
 **Blogs:**
-- Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, Notes
+- Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, Notes, CompanyID
 - Required: Date, Practice Name, Blog Title, Post URL (valid)
+- Optional: CompanyID (HubSpot Company ID)
 
 **GMB Posts:**
-- Date, Time, Practice Name, Practice URL, Post Title, Post URL, Make Execution, Keyword
+- Date, Time, Practice Name, Practice URL, Post Title, Post URL, Make Execution, Keyword, CompanyID
 - Required: Date, Practice Name, Post Title, Post URL (valid)
+- Optional: CompanyID (HubSpot Company ID)
 
 **GMB Replies:**
 - Account Name, Date Time, Reply, Reviews URL, Make Execution, Review ID, Location ID
@@ -187,6 +188,8 @@ When modifying URL handling, understand the validation flow:
 9. **Error mode has no Replies tab** - Replies don't have error tracking, so error mode only shows blogs and GMB posts
 10. **Error blogTitle is the error message** - For blog errors, the `blogTitle` field from the sheet contains the error message
 11. **GMB error URL is the reason** - For GMB post errors, the `url` field contains the reason ("processing", account errors, etc.)
+12. **HSID column is a clickable HubSpot link** - In tables, `companyId` renders as a link to `https://app.hubspot.com/contacts/22697387/record/0-2/{companyId}`. In CSV exports, it's the raw number only.
+13. **CompanyID column header is lowercase** - The Google Sheets column is matched as `companyid` (case-insensitive). Empty values result in a blank table cell.
 
 ## Environment Variables
 

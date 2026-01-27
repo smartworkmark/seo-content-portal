@@ -11,6 +11,7 @@ export interface BlogPost {
   id: string;
   date: string;
   practiceName: string;
+  companyId: string;
   blogTitle: string;
   keyword: string;
   url: string;
@@ -21,6 +22,7 @@ export interface GmbPost {
   id: string;
   date: string;
   practiceName: string;
+  companyId: string;
   postTitle: string;
   keyword: string;
   url: string;
@@ -40,6 +42,7 @@ export interface BlogError {
   id: string;
   date: string;
   practiceName: string;
+  companyId: string;
   errorMessage: string;  // The blogTitle field contains the error
 }
 
@@ -48,6 +51,7 @@ export interface GmbPostError {
   id: string;
   date: string;
   practiceName: string;
+  companyId: string;
   postTitle: string;     // Only displayed if reason is "processing"
   keyword: string;       // Only displayed if reason is "processing"
   reason: string;        // The URL field value ("processing" or "no account found" etc.)

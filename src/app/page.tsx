@@ -65,6 +65,7 @@ export default function Dashboard() {
       exportToCSV(filteredBlogs, 'blogs', [
         { key: 'date', label: 'Date' },
         { key: 'practiceName', label: 'Practice Name' },
+        { key: 'companyId', label: 'HSID' },
         { key: 'blogTitle', label: 'Blog Title' },
         { key: 'keyword', label: 'Keyword' },
         { key: 'url', label: 'URL' },
@@ -73,6 +74,7 @@ export default function Dashboard() {
       exportToCSV(filteredGmbPosts, 'gmb-posts', [
         { key: 'date', label: 'Date' },
         { key: 'practiceName', label: 'Practice Name' },
+        { key: 'companyId', label: 'HSID' },
         { key: 'postTitle', label: 'Post Title' },
         { key: 'keyword', label: 'Keyword' },
         { key: 'url', label: 'URL' },

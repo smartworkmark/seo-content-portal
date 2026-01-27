@@ -54,7 +54,7 @@ function sanitizeBlogUrl(url: string): string {
 }
 
 // Parse blogs from sheet data
-// Actual columns: Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, Notes
+// Actual columns: Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, Notes, CompanyID
 function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] } {
   if (rows.length <= 1) return { valid: [], errors: [] }; // Skip if only header or empty
 
@@ -65,6 +65,7 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
   const titleIndex = headers.findIndex((h) => h === 'blog title');
   const keywordIndex = headers.findIndex((h) => h === 'keyword');
   const urlIndex = headers.findIndex((h) => h === 'post url');
+  const companyIdIndex = headers.findIndex((h) => h === 'companyid');
 
   const valid: BlogPost[] = [];
   const errors: BlogError[] = [];
@@ -77,6 +78,7 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
     const blogTitle = row[titleIndex] || '';
     const keyword = row[keywordIndex] || '';
     const url = sanitizeBlogUrl(row[urlIndex] || '');
+    const companyId = companyIdIndex >= 0 ? (row[companyIdIndex] || '') : '';
 
     // Check if this is a valid record
     if (date && practiceName && blogTitle && isValidUrl(url)) {
@@ -84,6 +86,7 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
         id: `blog-${index + 1}`,
         date: dateTime,
         practiceName,
+        companyId,
         blogTitle,
         keyword,
         url,
@@ -94,6 +97,7 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
         id: `blog-error-${index + 1}`,
         date: dateTime,
         practiceName,
+        companyId,
         errorMessage: blogTitle || 'Missing blog title or invalid URL',
       });
     }
@@ -103,7 +107,7 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
 }
 
 // Parse GMB posts from sheet data
-// Actual columns: Date, Time, Practice Name, Practice URL, Post Title, Post URL, Make Execution, Keyword
+// Actual columns: Date, Time, Practice Name, Practice URL, Post Title, Post URL, Make Execution, Keyword, CompanyID
 function parseGmbPosts(rows: string[][]): { valid: GmbPost[]; errors: GmbPostError[] } {
   if (rows.length <= 1) return { valid: [], errors: [] };
 
@@ -114,6 +118,7 @@ function parseGmbPosts(rows: string[][]): { valid: GmbPost[]; errors: GmbPostErr
   const titleIndex = headers.findIndex((h) => h === 'post title');
   const keywordIndex = headers.findIndex((h) => h === 'keyword');
   const urlIndex = headers.findIndex((h) => h === 'post url');
+  const companyIdIndex = headers.findIndex((h) => h === 'companyid');
 
   const valid: GmbPost[] = [];
   const errors: GmbPostError[] = [];
@@ -126,6 +131,7 @@ function parseGmbPosts(rows: string[][]): { valid: GmbPost[]; errors: GmbPostErr
     const postTitle = row[titleIndex] || '';
     const keyword = row[keywordIndex] || '';
     const url = row[urlIndex] || '';
+    const companyId = companyIdIndex >= 0 ? (row[companyIdIndex] || '') : '';
 
     // Check if this is a valid record
     if (date && practiceName && postTitle && isValidUrl(url)) {
@@ -133,6 +139,7 @@ function parseGmbPosts(rows: string[][]): { valid: GmbPost[]; errors: GmbPostErr
         id: `gmb-${index + 1}`,
         date: dateTime,
         practiceName,
+        companyId,
         postTitle,
         keyword,
         url,
@@ -144,6 +151,7 @@ function parseGmbPosts(rows: string[][]): { valid: GmbPost[]; errors: GmbPostErr
         id: `gmb-error-${index + 1}`,
         date: dateTime,
         practiceName,
+        companyId,
         postTitle,
         keyword,
         reason: url || 'Missing or invalid URL',
