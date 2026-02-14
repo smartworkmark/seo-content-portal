@@ -177,19 +177,15 @@ function generateGmbPostErrors(count: number): GmbPostError[] {
   return errors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
-// Calculate error summary
+// Calculate error summary (last 7 days only)
 function calculateErrorSummary(blogErrors: BlogError[], gmbPostErrors: GmbPostError[]): ErrorSummaryData {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
-  const recentBlogErrors = blogErrors.filter((e) => new Date(e.date) >= sevenDaysAgo).length;
-  const recentGmbErrors = gmbPostErrors.filter((e) => new Date(e.date) >= sevenDaysAgo).length;
-
   return {
-    blogErrors: blogErrors.length,
-    gmbPostErrors: gmbPostErrors.length,
-    recentErrors: recentBlogErrors + recentGmbErrors,
+    blogErrors: blogErrors.filter((e) => new Date(e.date) >= sevenDaysAgo).length,
+    gmbPostErrors: gmbPostErrors.filter((e) => new Date(e.date) >= sevenDaysAgo).length,
   };
 }
 

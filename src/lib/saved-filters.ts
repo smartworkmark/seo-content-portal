@@ -29,10 +29,17 @@ function loadStore(): SavedFiltersStore {
       return getDefaultStore();
     }
 
-    // Future migration logic would go here
-    // if (parsed.version < CURRENT_VERSION) {
-    //   return migrateStore(parsed);
-    // }
+    // Migrate any saved filters with 'all' date range to '90d'
+    let needsPersist = false;
+    for (const filter of parsed.filters) {
+      if ((filter.dateRange as string) === 'all') {
+        filter.dateRange = '90d';
+        needsPersist = true;
+      }
+    }
+    if (needsPersist) {
+      persistStore(parsed);
+    }
 
     return parsed;
   } catch {

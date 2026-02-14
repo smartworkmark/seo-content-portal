@@ -218,7 +218,7 @@ function calculateSummary(
   };
 }
 
-// Calculate error summary statistics
+// Calculate error summary statistics (last 7 days only)
 function calculateErrorSummary(
   blogErrors: BlogError[],
   gmbPostErrors: GmbPostError[]
@@ -227,13 +227,9 @@ function calculateErrorSummary(
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
-  const recentBlogErrors = blogErrors.filter((e) => parseDate(e.date) >= sevenDaysAgo).length;
-  const recentGmbErrors = gmbPostErrors.filter((e) => parseDate(e.date) >= sevenDaysAgo).length;
-
   return {
-    blogErrors: blogErrors.length,
-    gmbPostErrors: gmbPostErrors.length,
-    recentErrors: recentBlogErrors + recentGmbErrors,
+    blogErrors: blogErrors.filter((e) => parseDate(e.date) >= sevenDaysAgo).length,
+    gmbPostErrors: gmbPostErrors.filter((e) => parseDate(e.date) >= sevenDaysAgo).length,
   };
 }
 

@@ -48,3 +48,81 @@ html {
 .overflow-y-auto {
   -webkit-overflow-scrolling: touch;
 }
+
+/* n8n Chat Widget branding overrides */
+#n8n-chat {
+  /* Brand colors */
+  --chat--color--primary: #312e81;
+  --chat--color--primary-shade-50: #3730a3;
+  --chat--color--primary--shade-100: #4338ca;
+  --chat--color--secondary: #4f46e5;
+  --chat--color-dark: #111827;
+  --chat--color-light: #f9fafb;
+
+  /* Typography */
+  --chat--font-family: var(--font-poppins), 'Poppins', sans-serif;
+  --chat--heading--font-size: 0.95rem;
+  --chat--subtitle--font-size: 0.8rem;
+  --chat--message--font-size: 0.875rem;
+  --chat--input--font-size: 0.875rem;
+
+  /* Layout / sizing */
+  --chat--spacing: 0.75rem;
+  --chat--border-radius: 0.5rem;
+  --chat--window--width: 350px;
+  --chat--window--height: 500px;
+
+  /* Header */
+  --chat--header--background: #312e81;
+  --chat--header--padding: 0.75rem;
+
+  /* Toggle button */
+  --chat--toggle--background: #312e81;
+  --chat--toggle--hover--background: #3730a3;
+  --chat--toggle--active--background: #4338ca;
+  --chat--toggle--border-radius: 0.75rem;
+  --chat--toggle--size: 48px;
+
+  /* Messages */
+  --chat--message--bot--background: #f3f4f6;
+  --chat--message--user--background: #312e81;
+  --chat--message--user--color: #ffffff;
+  --chat--message--padding: 0.625rem 0.75rem;
+  --chat--message--margin-bottom: 0.5rem;
+
+  /* Window border & shadow */
+  --chat--window--border: 1px solid #c7d2fe;
+}
+
+/* Drop shadow on the chat window panel */
+#n8n-chat .chat-window-wrapper .chat-window {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Restore markdown list styles stripped by Tailwind preflight reset */
+#n8n-chat .chat-message-markdown ul,
+#n8n-chat .chat-message-markdown ol {
+  margin: 0.375em 0 !important;
+  padding-left: 1.5em !important;
+}
+
+#n8n-chat .chat-message-markdown ul {
+  list-style-type: disc !important;
+}
+
+#n8n-chat .chat-message-markdown ol {
+  list-style-type: decimal !important;
+}
+
+#n8n-chat .chat-message-markdown li {
+  display: list-item !important;
+  margin: 0.25em 0 !important;
+}
+
+#n8n-chat .chat-message-markdown p {
+  margin: 0.375em 0 !important;
+}
+
+#n8n-chat .chat-message-markdown strong {
+  font-weight: 600 !important;
+}

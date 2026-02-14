@@ -30,12 +30,6 @@ const ActivityIcon = () => (
   </svg>
 );
 
-const ErrorIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-  </svg>
-);
-
 interface SummaryCardsProps {
   data: SummaryData | null;
   isLoading: boolean;
@@ -51,25 +45,18 @@ export function SummaryCards({ data, isLoading, isErrorMode = false, errorSummar
   // Error mode: show error counts (no Replies card)
   if (isErrorMode && errorSummary) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <SummaryCard
           title="Blog Errors"
           count={errorSummary.blogErrors}
           icon={<BlogIcon />}
-          subtitle="Failed to process"
+          subtitle="Last 7 days"
           isErrorMode={true}
         />
         <SummaryCard
           title="GMB Errors"
           count={errorSummary.gmbPostErrors}
           icon={<GmbIcon />}
-          subtitle="Failed to process"
-          isErrorMode={true}
-        />
-        <SummaryCard
-          title="Recent"
-          count={errorSummary.recentErrors}
-          icon={<ErrorIcon />}
           subtitle="Last 7 days"
           isErrorMode={true}
         />

@@ -22,12 +22,10 @@ export function formatDateTime(dateString: string): string {
   });
 }
 
-// Get date threshold based on range
-export function getDateThreshold(range: DateRange): Date | null {
-  if (range === 'all') return null;
-
+// Get date threshold based on range (inclusive of today)
+export function getDateThreshold(range: DateRange): Date {
   const now = new Date();
-  const days = range === '7d' ? 7 : 30;
+  const days = range === '7d' ? 6 : range === '30d' ? 29 : 89;
   const threshold = new Date(now);
   threshold.setDate(threshold.getDate() - days);
   threshold.setHours(0, 0, 0, 0);
@@ -36,11 +34,9 @@ export function getDateThreshold(range: DateRange): Date | null {
 
 // Check if date is within range
 export function isWithinDateRange(dateString: string, range: DateRange): boolean {
-  if (range === 'all') return true;
-
   const date = new Date(dateString);
   const threshold = getDateThreshold(range);
-  return threshold ? date >= threshold : true;
+  return date >= threshold;
 }
 
 // Check if date is today

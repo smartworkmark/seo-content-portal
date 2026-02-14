@@ -68,8 +68,8 @@ export function SaveFilterModal({
         return 'Last 7 days';
       case '30d':
         return 'Last 30 days';
-      case 'all':
-        return 'All time';
+      case '90d':
+        return 'Last 90 days';
     }
   };
 

@@ -4,7 +4,7 @@ export type ContentType = 'blogs' | 'gmb-posts' | 'replies';
 // Error content type (no replies in error mode)
 export type ErrorContentType = 'blogs' | 'gmb-posts';
 
-export type DateRange = '7d' | '30d' | 'all';
+export type DateRange = '7d' | '30d' | '90d';
 
 // Blog Post
 export interface BlogPost {
@@ -61,7 +61,6 @@ export interface GmbPostError {
 export interface ErrorSummaryData {
   blogErrors: number;
   gmbPostErrors: number;
-  recentErrors: number;  // Errors in last 7 days
 }
 
 // Union type for all content
