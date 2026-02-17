@@ -195,8 +195,9 @@ function calculateSummary(
   gmbPosts: GmbPost[],
   replies: GmbReply[]
 ) {
+  // Use 6 days ago to get a 7-day window inclusive of today (matches client-side '7d' filter)
   const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
   const today = new Date();
@@ -223,8 +224,9 @@ function calculateErrorSummary(
   blogErrors: BlogError[],
   gmbPostErrors: GmbPostError[]
 ): ErrorSummaryData {
+  // Use 6 days ago to get a 7-day window inclusive of today (matches client-side '7d' filter)
   const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
   return {
