@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Troubleshooting Reference
+
+Past debugging sessions, root causes, and lessons learned are documented in:
+**[reference/lessons-learned.md](reference/lessons-learned.md)**
+
+Key rules to know before touching related code:
+- `.tsx` files must export at least one named React component (uppercase) — see lessons-learned.md for the Fast Refresh reload loop issue
+- Google Sheets column names must match exactly — check `parseBlogs()` in `google-sheets.ts` if feature filters return 0 results
+
+**When you discover a new bug, root cause, or non-obvious fix during any session, add an entry to `reference/lessons-learned.md`.** Include: symptoms, root cause, the fix, and a "rule to remember" so future sessions don't repeat the same diagnosis work.
+
 ## Project Overview
 
 This is a Next.js-based content portal for managing SEO content (blogs, GMB posts, and review replies) sourced from Google Sheets. The application uses TypeScript throughout and follows a modern React pattern with Server Components and client-side interactivity.
@@ -78,6 +89,24 @@ The application follows a specific data flow pattern:
 - Filters are tab-specific (blogs, gmb-posts, replies have separate saved filters)
 - Empty practices array `[]` means "all practices" - simplifies storage/comparison
 
+**Blog Enrichment Indicators Feature:**
+- Blogs can have two enrichment features tracked in Google Sheets: **Hyperlocal** (teal, map pin icon) and **EEAT** (purple, star icon)
+- Feature presence is driven by boolean columns in the Blogs sheet (`Hyperlocal Used`, `EEAT Included`) — empty cell = false, only literal `"TRUE"` activates
+- Two content columns hold the enrichment text: `Hyperlocal Content`, `Review Content`
+- `FEATURE_CONFIG` in `src/lib/features.tsx` is the single source of truth for all feature UI (colors, icons, labels) — adding a new feature = one new entry here
+- **`BlogPost`** type includes: `hyperlocalEnabled`, `reviewsEnabled`, `hyperlocalContent`, `reviewContent`, `features` (derived string array)
+- **Feature icons** render inline in the Practice cell of each blog row; muted gray by default, colored when in "include" filter mode or hovered; click cycles the filter state
+- **Feature filter pills** (`Features: [Hyperlocal] [EEAT]`) appear in the Filters bar on the Blogs tab only
+- **Feature filter is 3-state per feature** — click cycles: Off → Include (✓, feature color) → Exclude (✗, rose/red) → Off
+  - **Include mode**: shows only blogs WITH that feature
+  - **Exclude mode**: shows only blogs WITHOUT that feature
+  - **Off**: no filtering on that feature
+- **Feature filter types**: `FeatureFilterMode = 'include' | 'exclude'`, `FeatureFilters = Record<string, FeatureFilterMode>` (key absence = off)
+- **Feature filter state** (`featureFilters: FeatureFilters`) lives in `page.tsx`; filtering uses AND logic across all active features
+- **Filter status bar** appears between Filters and DataTable when any feature filter is active: "Showing X of Y blogs — with [Feature], without [Feature]" + "Clear filters" link; "with" text uses feature color, "without" text uses rose
+- **Expandable row detail panel** — rows with features show a chevron (▸) and are clickable; clicking expands a `BlogDetailPanel` with Hyperlocal and/or EEAT cards; only one row open at a time; rows without features are not clickable
+- `src/lib/features.tsx` must stay `.tsx` (not `.ts`) — it exports JSX icon elements
+
 **Error Log Toggle Feature:**
 - Toggle between "Records" and "Errors" view modes via `ViewModeToggle` component
 - Error records are those filtered out during validation (invalid URLs, missing required fields)
@@ -115,9 +144,13 @@ The application follows a specific data flow pattern:
   - `getSavedFilters()`, `saveFilter()`, `deleteFilter()`
   - Migrates legacy `'all'` date range values to `'90d'` on load
 
+**Feature Config:**
+- `src/lib/features.tsx` - `FEATURE_CONFIG` object defining all enrichment features (colors, icons, labels); must be `.tsx` not `.ts` (exports JSX)
+
 **Types:**
 - `src/types/index.ts` - All TypeScript interfaces and types
   - Content types: `BlogPost`, `GmbPost`, `GmbReply` (`BlogPost` and `GmbPost` include `companyId`)
+  - `BlogPost` enrichment fields: `hyperlocalEnabled`, `reviewsEnabled`, `hyperlocalContent`, `reviewContent`, `features`
   - Error types: `BlogError`, `GmbPostError`, `ErrorSummaryData` (last 7 days counts only; `BlogError` and `GmbPostError` include `companyId`)
   - `ErrorContentType` - Content type for error mode (no replies)
   - `SavedFilter`, `SavedFiltersStore` - Saved filter persistence
@@ -129,7 +162,7 @@ The application follows a specific data flow pattern:
 - `src/components/SummaryCard.tsx` - Supports `isErrorMode` prop for amber styling
 - `src/components/SummaryCards.tsx` - Displays error summary cards in error mode (2 cards: Blog Errors, GMB Errors — last 7 days)
 - `src/components/ContentTabs.tsx` - Hides Replies tab and uses amber colors in error mode
-- `src/components/DataTable.tsx` - Renders error tables with different column layouts; includes `HUBSPOT_URL` constant for HSID links
+- `src/components/DataTable.tsx` - Renders error tables with different column layouts; includes `HUBSPOT_URL` constant for HSID links; contains inline `FeatureIcon` and `BlogDetailPanel` sub-components
 - `src/components/ChatWidget.tsx` - Floating n8n chat widget powered by `@n8n/chat`, mounted in `layout.tsx` for persistence across routes
 
 ## Google Sheets Schema
@@ -137,9 +170,11 @@ The application follows a specific data flow pattern:
 The application expects three sheets with specific column structures:
 
 **Blogs:**
-- Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, Notes, CompanyID
+- Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, companyId, rejected_keyword, keyword_notes, Hyperlocal Used, EEAT Included, Word Count
 - Required: Date, Practice Name, Blog Title, Post URL (valid)
-- Optional: CompanyID (HubSpot Company ID)
+- Optional: companyId (HubSpot Company ID)
+- Enrichment flags: `Hyperlocal Used` (boolean TRUE/FALSE → `hyperlocalEnabled`), `EEAT Included` (boolean TRUE/FALSE → `reviewsEnabled`, UI label: "EEAT")
+- Enrichment content: `Hyperlocal Content`, `Review Content` — columns exist in sheet; older records may have empty cells, parsed as `null` when empty
 
 **GMB Posts:**
 - Date, Time, Practice Name, Practice URL, Post Title, Post URL, Make Execution, Keyword, CompanyID
@@ -167,8 +202,9 @@ When modifying URL handling, understand the validation flow:
 ### Filter Application Order
 1. Parse data from sheets → apply server filters (required fields + valid URLs)
 2. Calculate summary stats from filtered data
-3. Client applies user-selected filters (practice/account, date range)
+3. Client applies user-selected filters (practice/account, date range) via `useContentData` hook → `filteredBlogs`
 4. Client re-validates URLs as additional safety
+5. `page.tsx` applies feature filter on top of `filteredBlogs` → `featureFilteredBlogs` (passed to `DataTable`)
 
 ### Date Handling
 - Blogs/GMB Posts combine separate Date and Time columns into single datetime string
@@ -196,6 +232,12 @@ When modifying URL handling, understand the validation flow:
 15. **Chat widget CSS overrides live in globals.css** - Scoped under `#n8n-chat` selector to override the widget's CSS variables for indigo branding. Uses `!important` on markdown list styles to beat Tailwind's preflight reset.
 16. **Chat widget streaming is disabled** - `enableStreaming: false` in `ChatWidget.tsx`. The n8n workflow does not use streaming, so the widget waits for the full response. If the n8n workflow is changed to stream, set `enableStreaming: true`.
 17. **Chat widget is independent of dashboard state** - Mounted in `layout.tsx` after `{children}`, returns `null` (injects its own DOM into `document.body`). Does not load previous sessions (`loadPreviousSession: false`).
+18. **Feature filter is blogs-only and independent** - `featureFilters: FeatureFilters` state lives in `page.tsx` and resets when switching away from the Blogs tab. It is applied as a final client-side pass after `filteredBlogs` from the hook.
+19. **`features.tsx` must stay `.tsx`** - The file exports JSX icon elements; renaming to `.ts` will cause a build error.
+20. **Enrichment boolean columns: empty = false** - Only a literal `"TRUE"` string (case-insensitive) activates a feature. Missing columns or empty cells default to `false` with no error.
+21. **Feature filter uses AND logic across modes** - Each active feature filter must be satisfied (include = blog has it, exclude = blog doesn't). Mixed include/exclude filters work together.
+22. **Blog rows with features are expandable; rows without are not** - The chevron and click handler only appear/activate when `blog.features.length > 0`. The detail panel always renders both feature cards if their boolean is true, even if the content column is empty.
+23. **Feature filter pill click cycles 3 states** - Off → Include (✓ colored) → Exclude (✗ rose) → Off. Inline table icons are highlighted only in include mode (`featureFilters[f] === 'include'`). Key absence in `featureFilters` record means off.
 
 ## Environment Variables
 

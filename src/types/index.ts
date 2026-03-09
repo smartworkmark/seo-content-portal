@@ -1,6 +1,10 @@
 // Content Types
 export type ContentType = 'blogs' | 'gmb-posts' | 'replies';
 
+// Feature filter mode: 'include' = show only blogs WITH feature, 'exclude' = show only blogs WITHOUT
+export type FeatureFilterMode = 'include' | 'exclude';
+export type FeatureFilters = Record<string, FeatureFilterMode>;
+
 // Error content type (no replies in error mode)
 export type ErrorContentType = 'blogs' | 'gmb-posts';
 
@@ -15,6 +19,14 @@ export interface BlogPost {
   blogTitle: string;
   keyword: string;
   url: string;
+  // Enrichment feature flags (from Google Sheets boolean columns)
+  hyperlocalEnabled: boolean;
+  reviewsEnabled: boolean;
+  // Enrichment content (from Google Sheets text columns; null if cell is empty)
+  hyperlocalContent: string | null;
+  reviewContent: string | null;
+  // Derived from boolean flags: e.g. ["hyperlocal", "reviews"]
+  features: string[];
 }
 
 // GMB Post

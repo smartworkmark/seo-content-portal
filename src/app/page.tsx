@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ContentType, ErrorContentType, DateRange, SavedFilter } from '@/types';
+import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters } from '@/types';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
 import { useSavedFilters } from '@/hooks/useSavedFilters';
 import { exportToCSV } from '@/lib/utils';
+import { FEATURE_CONFIG } from '@/lib/features';
 import { SummaryCards } from '@/components/SummaryCards';
 import { ContentTabs } from '@/components/ContentTabs';
 import { Filters } from '@/components/Filters';
@@ -17,6 +18,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<ContentType | ErrorContentType>('blogs');
   const [selectedPractices, setSelectedPractices] = useState<string[]>([]);
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange>('7d');
+  const [featureFilters, setFeatureFilters] = useState<FeatureFilters>({});
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [showErrors, setShowErrors] = useState(false);
@@ -89,10 +91,35 @@ export default function Dashboard() {
     }
   };
 
+  // Feature filter derived from filteredBlogs (applied after practice+date filters)
+  const featureFilteredBlogs = Object.keys(featureFilters).length === 0
+    ? filteredBlogs
+    : filteredBlogs.filter((blog) =>
+        Object.entries(featureFilters).every(([feature, mode]) =>
+          mode === 'include'
+            ? blog.features.includes(feature)
+            : !blog.features.includes(feature)
+        )
+      );
+
+  // Cycle: off → include → exclude → off
+  const handleFeatureToggle = (feature: string) => {
+    setFeatureFilters((prev) => {
+      const current = prev[feature];
+      if (!current) return { ...prev, [feature]: 'include' };
+      if (current === 'include') return { ...prev, [feature]: 'exclude' };
+      const next = { ...prev };
+      delete next[feature];
+      return next;
+    });
+  };
+
   // Reset practice filter when switching tabs (practice vs account)
+  // Also reset feature filter when leaving blogs tab
   const handleTabChange = (tab: ContentType | ErrorContentType) => {
     setActiveTab(tab);
     setSelectedPractices([]);
+    if (tab !== 'blogs') setFeatureFilters({});
   };
 
   // Apply a saved filter
@@ -227,19 +254,49 @@ export default function Dashboard() {
               onApplyFilter={handleApplyFilter}
               onSaveFilter={handleSaveFilter}
               onDeleteFilter={deleteFilter}
+              featureFilters={featureFilters}
+              onFeatureToggle={handleFeatureToggle}
             />
           </div>
+
+          {/* Feature filter status bar — blogs tab only, when features are active */}
+          {activeTab === 'blogs' && !showErrors && Object.keys(featureFilters).length > 0 && (
+            <div className="flex items-center justify-between px-4 py-2 text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
+              <span>
+                Showing {featureFilteredBlogs.length} of {filteredBlogs.length} blogs —{' '}
+                {Object.entries(featureFilters).map(([f, mode], i) => (
+                  <span key={f}>
+                    {i > 0 && <span className="text-gray-400">, </span>}
+                    <span
+                      className="font-medium"
+                      style={{ color: mode === 'include' ? (FEATURE_CONFIG[f]?.color ?? '#374151') : '#f43f5e' }}
+                    >
+                      {mode === 'include' ? 'with' : 'without'} {FEATURE_CONFIG[f]?.label ?? f}
+                    </span>
+                  </span>
+                ))}
+              </span>
+              <button
+                onClick={() => setFeatureFilters({})}
+                className="text-indigo-600 hover:underline font-medium ml-4"
+              >
+                Clear filters
+              </button>
+            </div>
+          )}
 
           {/* Data Table */}
           <DataTable
             contentType={activeTab}
-            blogs={filteredBlogs}
+            blogs={featureFilteredBlogs}
             gmbPosts={filteredGmbPosts}
             replies={filteredReplies}
             isLoading={isLoading}
             isErrorMode={showErrors}
             blogErrors={filteredBlogErrors}
             gmbPostErrors={filteredGmbPostErrors}
+            featureFilters={featureFilters}
+            onFeatureToggle={handleFeatureToggle}
           />
         </section>
       </main>

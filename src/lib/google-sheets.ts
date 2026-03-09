@@ -54,7 +54,7 @@ function sanitizeBlogUrl(url: string): string {
 }
 
 // Parse blogs from sheet data
-// Actual columns: Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, Notes, CompanyID
+// Actual columns: Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, companyId, rejected_keyword, keyword_notes, Hyperlocal Used, EEAT Included, Word Count
 function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] } {
   if (rows.length <= 1) return { valid: [], errors: [] }; // Skip if only header or empty
 
@@ -66,6 +66,11 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
   const keywordIndex = headers.findIndex((h) => h === 'keyword');
   const urlIndex = headers.findIndex((h) => h === 'post url');
   const companyIdIndex = headers.findIndex((h) => h === 'companyid');
+  // Enrichment feature columns — match actual sheet column names
+  const hyperlocalBoolIndex = headers.findIndex((h) => h === 'hyperlocal used');
+  const reviewsBoolIndex = headers.findIndex((h) => h === 'eeat included');
+  const hyperlocalContentIndex = headers.findIndex((h) => h === 'hyperlocal content');
+  const reviewContentIndex = headers.findIndex((h) => h === 'review content');
 
   const valid: BlogPost[] = [];
   const errors: BlogError[] = [];
@@ -79,6 +84,18 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
     const keyword = row[keywordIndex] || '';
     const url = sanitizeBlogUrl(row[urlIndex] || '');
     const companyId = companyIdIndex >= 0 ? (row[companyIdIndex] || '') : '';
+    // Empty cell or absent column → false; only literal "TRUE" activates the feature
+    const hyperlocalEnabled = hyperlocalBoolIndex >= 0
+      ? row[hyperlocalBoolIndex]?.toString().toLowerCase() === 'true'
+      : false;
+    const reviewsEnabled = reviewsBoolIndex >= 0
+      ? row[reviewsBoolIndex]?.toString().toLowerCase() === 'true'
+      : false;
+    const hyperlocalContent = hyperlocalContentIndex >= 0 ? (row[hyperlocalContentIndex] || null) : null;
+    const reviewContent = reviewContentIndex >= 0 ? (row[reviewContentIndex] || null) : null;
+    const features: string[] = [];
+    if (hyperlocalEnabled) features.push('hyperlocal');
+    if (reviewsEnabled) features.push('reviews');
 
     // Check if this is a valid record
     if (date && practiceName && blogTitle && isValidUrl(url)) {
@@ -90,6 +107,11 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
         blogTitle,
         keyword,
         url,
+        hyperlocalEnabled,
+        reviewsEnabled,
+        hyperlocalContent,
+        reviewContent,
+        features,
       });
     } else if (date && practiceName) {
       // Error record: has date and practice but invalid/missing URL or title

@@ -75,10 +75,28 @@ function randomDate(daysBack: number): string {
   return date.toISOString();
 }
 
+// Enrichment patterns for mock data (cycles through to give a mix of feature combinations)
+const enrichmentPatterns = [
+  { hyperlocalEnabled: true, reviewsEnabled: true,
+    hyperlocalContent: 'Yucaipa Boulevard, Chapman Heights, Wildwood Canyon State Park',
+    reviewContent: 'Dr. Patel and the team made my first visit so comfortable. The office is easy to find and the staff is incredibly welcoming. Five stars all around!' },
+  { hyperlocalEnabled: true, reviewsEnabled: false,
+    hyperlocalContent: 'Sunnymead Ranch, TownGate, Moreno Valley Mall area',
+    reviewContent: null },
+  { hyperlocalEnabled: false, reviewsEnabled: true,
+    hyperlocalContent: null,
+    reviewContent: 'Had a cracked tooth on a Saturday and they got me in same day. Truly grateful for the emergency availability.' },
+  { hyperlocalEnabled: false, reviewsEnabled: false, hyperlocalContent: null, reviewContent: null },
+];
+
 // Generate mock blogs
 function generateBlogs(count: number): BlogPost[] {
   const blogs: BlogPost[] = [];
   for (let i = 0; i < count; i++) {
+    const pattern = enrichmentPatterns[i % enrichmentPatterns.length];
+    const features: string[] = [];
+    if (pattern.hyperlocalEnabled) features.push('hyperlocal');
+    if (pattern.reviewsEnabled) features.push('reviews');
     blogs.push({
       id: `blog-${i + 1}`,
       date: randomDate(90),
@@ -87,6 +105,8 @@ function generateBlogs(count: number): BlogPost[] {
       blogTitle: blogTitles[Math.floor(Math.random() * blogTitles.length)],
       keyword: keywords[Math.floor(Math.random() * keywords.length)],
       url: `https://example.com/blog/${i + 1}`,
+      ...pattern,
+      features,
     });
   }
   return blogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());

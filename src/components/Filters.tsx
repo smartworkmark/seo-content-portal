@@ -1,6 +1,7 @@
 'use client';
 
-import { DateRange, ContentType, SavedFilter } from '@/types';
+import { DateRange, ContentType, SavedFilter, FeatureFilters } from '@/types';
+import { FEATURE_CONFIG } from '@/lib/features';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { SavedFiltersBar } from './SavedFiltersBar';
 import { SaveFilterModal } from './SaveFilterModal';
@@ -19,6 +20,8 @@ interface FiltersProps {
   onApplyFilter: (filter: SavedFilter) => void;
   onSaveFilter: (name: string) => void;
   onDeleteFilter: (id: string) => void;
+  featureFilters?: FeatureFilters;
+  onFeatureToggle?: (feature: string) => void;
 }
 
 export function Filters({
@@ -34,6 +37,8 @@ export function Filters({
   onApplyFilter,
   onSaveFilter,
   onDeleteFilter,
+  featureFilters = {},
+  onFeatureToggle,
 }: FiltersProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -66,7 +71,7 @@ export function Filters({
 
       {/* Main Filters Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center flex-wrap">
           {/* Practice/Account Filter */}
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-600 whitespace-nowrap">
@@ -98,6 +103,37 @@ export function Filters({
               </button>
             ))}
           </div>
+
+          {/* Feature Filter Pills — blogs tab only */}
+          {contentType === 'blogs' && onFeatureToggle && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-400 font-medium whitespace-nowrap">Features:</span>
+              {Object.entries(FEATURE_CONFIG).map(([key, config]) => {
+                const mode = featureFilters[key]; // undefined | 'include' | 'exclude'
+                const isInclude = mode === 'include';
+                const isExclude = mode === 'exclude';
+                const borderColor = isInclude ? config.color : isExclude ? '#f43f5e' : '#e2e8f0';
+                const textColor = isInclude ? config.color : isExclude ? '#f43f5e' : '#94a3b8';
+                const bgColor = isInclude ? config.bgColor : isExclude ? '#fff1f2' : 'transparent';
+                const iconColor = isInclude ? config.color : isExclude ? '#f43f5e' : '#b0aec5';
+                return (
+                  <button
+                    key={key}
+                    onClick={() => onFeatureToggle(key)}
+                    style={{ borderColor, color: textColor, backgroundColor: bgColor }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all"
+                  >
+                    <span style={{ color: iconColor, display: 'inline-flex' }}>
+                      <config.Icon />
+                    </span>
+                    {isInclude && <span>✓</span>}
+                    {isExclude && <span>✗</span>}
+                    {config.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Export Button */}
