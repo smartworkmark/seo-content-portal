@@ -88,6 +88,75 @@ curl -s "https://sheets.googleapis.com/v4/spreadsheets/${SHEETS_ID}/values/Blogs
 
 ---
 
+## 2026-03-09 — Newlines from Google Sheets Not Rendered in Detail Panel
+
+### Symptoms
+Hyperlocal content and review content displayed as a single run-on line in the expanded blog row panel, even though the raw spreadsheet cell contained line breaks.
+
+### Root Cause
+HTML collapses whitespace (including `\n`) by default. The content `<p>` tags had no `whiteSpace` CSS property set, so the browser rendered all text on one line.
+
+### Fix
+Added `whiteSpace: 'pre-wrap'` to both content paragraph styles in `BlogDetailPanel` in `src/components/DataTable.tsx`:
+
+```tsx
+<p style={{ ..., whiteSpace: 'pre-wrap' }}>{blog.hyperlocalContent}</p>
+<p style={{ ..., whiteSpace: 'pre-wrap' }}>&ldquo;{blog.reviewContent}&rdquo;</p>
+```
+
+`pre-wrap` preserves `\n` characters as visual line breaks while still allowing normal word wrapping.
+
+### Rule to Remember
+Any time content comes from a spreadsheet and may contain embedded newlines, add `whiteSpace: 'pre-wrap'` to the container element. Plain `<p>` tags collapse whitespace.
+
+---
+
+## 2026-03-09 — CSV Export Ignored Feature Filters (Hyperlocal/EEAT)
+
+### Symptoms
+Clicking "Export CSV" with an active Hyperlocal or EEAT filter downloaded the full practice+date filtered set (e.g. 223 rows) instead of the feature-filtered set (e.g. 164 rows).
+
+### Root Cause
+`handleExport` in `src/app/page.tsx` called `exportToCSV(filteredBlogs, ...)`. The feature filter is applied in a second step, producing `featureFilteredBlogs`. The export skipped that second step entirely.
+
+### Fix
+Changed the blogs export to use `featureFilteredBlogs` instead of `filteredBlogs`:
+
+```ts
+// Before
+exportToCSV(filteredBlogs, 'blogs', [...]);
+
+// After
+exportToCSV(featureFilteredBlogs, 'blogs', [...]);
+```
+
+### Rule to Remember
+Whenever a new filter layer is added on top of existing filtered data (e.g. feature filters on top of practice+date filters), **all downstream actions** (exports, summaries, counts) must use the most-derived filtered variable — not an intermediate one. When adding a new filter, audit every consumer of the previous filtered variable.
+
+---
+
+## 2026-03-09 — Pagination Stranding When Filters Reduce Total Pages
+
+### Symptoms
+User navigates to page 2 of results. They then apply a feature filter that reduces results to fewer than 25 items (1 page). The table shows "No blogs found" with no pagination controls to go back, leaving the user stuck.
+
+### Root Cause
+`currentPage` in `DataTable` only reset to 1 when `contentType` or `isErrorMode` changed — not when the `blogs` prop shrank due to a filter change. When `totalPages` dropped to 1 and `currentPage` was still 2, the `Pagination` component returned `null` (it hides when `totalPages <= 1`), removing all navigation.
+
+### Fix
+Added a second `useEffect` in `DataTable` that resets `currentPage` to 1 whenever any data array length changes:
+
+```ts
+useEffect(() => {
+  setCurrentPage(1);
+}, [blogs.length, gmbPosts.length, replies.length, blogErrors.length, gmbPostErrors.length]);
+```
+
+### Rule to Remember
+Pagination state must reset whenever the **data** changes, not just when the **tab** changes. Any filter applied externally (practice, date, feature) can shrink results below the current page. Watch all data-length dependencies.
+
+---
+
 ## General Debugging Tips
 
 - **Check server logs first** — `GET /` repeating in the Next.js log is a sign of a reload loop, not normal behaviour.

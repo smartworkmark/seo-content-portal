@@ -106,7 +106,7 @@ function BlogDetailPanel({ blog, colSpan }: { blog: BlogPost; colSpan: number })
                 </span>
               </div>
               {blog.hyperlocalContent ? (
-                <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, margin: 0 }}>
+                <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.5, margin: 0, whiteSpace: 'pre-wrap' }}>
                   {blog.hyperlocalContent}
                 </p>
               ) : (
@@ -143,7 +143,7 @@ function BlogDetailPanel({ blog, colSpan }: { blog: BlogPost; colSpan: number })
                   fontSize: 13, lineHeight: 1.5, color: '#374151',
                   fontStyle: 'italic',
                   borderLeft: `3px solid ${FEATURE_CONFIG.reviews.borderColor}`,
-                  paddingLeft: 12, margin: 0,
+                  paddingLeft: 12, margin: 0, whiteSpace: 'pre-wrap',
                 }}>
                   &ldquo;{blog.reviewContent}&rdquo;
                 </p>
@@ -184,6 +184,11 @@ export function DataTable({
     setCurrentPage(1);
     setExpandedBlogRow(null);
   }, [contentType, isErrorMode]);
+
+  // Reset page when data length changes (e.g. feature filters applied that reduce total pages)
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [blogs.length, gmbPosts.length, replies.length, blogErrors.length, gmbPostErrors.length]);
 
   const handleSort = (column: string) => {
     setSort((prev) => ({

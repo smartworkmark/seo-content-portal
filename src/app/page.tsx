@@ -64,7 +64,7 @@ export default function Dashboard() {
 
   const handleExport = () => {
     if (activeTab === 'blogs') {
-      exportToCSV(filteredBlogs, 'blogs', [
+      exportToCSV(featureFilteredBlogs, 'blogs', [
         { key: 'date', label: 'Date' },
         { key: 'practiceName', label: 'Practice Name' },
         { key: 'companyId', label: 'HSID' },
