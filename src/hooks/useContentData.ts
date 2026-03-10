@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ErrorSummaryData } from '@/types';
 import { filterBlogs, filterGmbPosts, filterReplies, filterBlogErrors, filterGmbPostErrors } from '@/lib/utils';
+import { SummaryData } from '@/types';
 
 interface UseContentDataReturn {
   data: ContentResponse | null;
@@ -13,6 +14,7 @@ interface UseContentDataReturn {
   filteredGmbPosts: GmbPost[];
   filteredReplies: GmbReply[];
   filterCounts: { blogs: number; gmbPosts: number; replies: number };
+  clientSummary: SummaryData | null;
   // Error data
   blogErrors: BlogError[];
   gmbPostErrors: GmbPostError[];
@@ -86,6 +88,24 @@ export function useContentData(
     replies: filteredReplies.length,
   };
 
+  // Compute summary counts client-side (same date parsing as filters, avoids server timezone issues)
+  const clientSummary: SummaryData | null = data ? (() => {
+    const blogs7d = filterBlogs(data.blogs, [], '7d');
+    const gmbPosts7d = filterGmbPosts(data.gmbPosts, [], '7d');
+    const replies7d = filterReplies(data.replies, [], '7d');
+    const todayStr = new Date().toDateString();
+    const todayActivity =
+      blogs7d.filter((b) => new Date(b.date).toDateString() === todayStr).length +
+      gmbPosts7d.filter((p) => new Date(p.date).toDateString() === todayStr).length +
+      replies7d.filter((r) => new Date(r.dateTime).toDateString() === todayStr).length;
+    return {
+      blogs7d: blogs7d.length,
+      gmbPosts7d: gmbPosts7d.length,
+      replies7d: replies7d.length,
+      todayActivity,
+    };
+  })() : null;
+
   // Error data
   const blogErrors = data?.blogErrors ?? [];
   const gmbPostErrors = data?.gmbPostErrors ?? [];
@@ -114,6 +134,7 @@ export function useContentData(
     filteredGmbPosts,
     filteredReplies,
     filterCounts,
+    clientSummary,
     // Error data
     blogErrors,
     gmbPostErrors,

@@ -45,6 +45,7 @@ export default function Dashboard() {
     filteredGmbPostErrors,
     errorFilterCounts,
     errorSummary,
+    clientSummary,
   } = useContentData(selectedPractices, selectedDateRange);
 
   // Handle error mode toggle
@@ -221,7 +222,7 @@ export default function Dashboard() {
         {/* Summary Cards */}
         <section className="mb-8">
           <SummaryCards
-            data={data?.summary ?? null}
+            data={clientSummary}
             isLoading={isLoading}
             isErrorMode={showErrors}
             errorSummary={errorSummary}
