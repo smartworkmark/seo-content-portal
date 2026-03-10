@@ -54,7 +54,7 @@ function sanitizeBlogUrl(url: string): string {
 }
 
 // Parse blogs from sheet data
-// Actual columns: Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, companyId, rejected_keyword, keyword_notes, Hyperlocal Used, EEAT Included, Word Count
+// Actual columns: Date, Time, Practice Name, Practice URL, Blog Title, Post URL, Webflow Item ID, Webflow Collection ID, Keyword, Make Execution, companyId, rejected_keyword, keyword_notes, Hyperlocal Used, EEAT Included, Word Count, Hyperlocal Content, Reviews Content
 function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] } {
   if (rows.length <= 1) return { valid: [], errors: [] }; // Skip if only header or empty
 
@@ -70,7 +70,7 @@ function parseBlogs(rows: string[][]): { valid: BlogPost[]; errors: BlogError[] 
   const hyperlocalBoolIndex = headers.findIndex((h) => h === 'hyperlocal used');
   const reviewsBoolIndex = headers.findIndex((h) => h === 'eeat included');
   const hyperlocalContentIndex = headers.findIndex((h) => h === 'hyperlocal content');
-  const reviewContentIndex = headers.findIndex((h) => h === 'review content');
+  const reviewContentIndex = headers.findIndex((h) => h === 'reviews content');
 
   const valid: BlogPost[] = [];
   const errors: BlogError[] = [];

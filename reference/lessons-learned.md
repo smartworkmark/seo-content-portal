@@ -157,6 +157,23 @@ Pagination state must reset whenever the **data** changes, not just when the **t
 
 ---
 
+## 2026-03-10 — Reviews Content Column Not Populating
+
+### Symptoms
+- "Review Content" data added to the Google Sheets Blogs tab was not appearing in the app's expandable blog detail panel
+- `reviewContent` was always `null` despite data existing in the sheet
+
+### Root Cause
+The spreadsheet column is named **"Reviews Content"** (with an 's'), but `google-sheets.ts` was matching against `"review content"` (without the 's'). The `findIndex` call returned `-1`, so the content was never read.
+
+### Fix
+Changed the header match in `parseBlogs()` from `'review content'` to `'reviews content'`.
+
+### Rule to Remember
+**Always verify column names against the live spreadsheet header row** — don't assume a column name from documentation or memory. Column names can be subtly different (pluralization, spacing, casing). Use the Google Sheets API to fetch row 1 and confirm exact names.
+
+---
+
 ## General Debugging Tips
 
 - **Check server logs first** — `GET /` repeating in the Next.js log is a sign of a reload loop, not normal behaviour.
