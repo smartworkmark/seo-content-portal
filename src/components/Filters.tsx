@@ -46,11 +46,18 @@ export function Filters({
   const filterLabel = isRepliesTab ? 'Account' : 'Practice';
   const filterOptions = isRepliesTab ? accounts : practices;
 
-  const dateRangeOptions: { value: DateRange; label: string }[] = [
-    { value: '7d', label: 'Last 7 Days' },
-    { value: '30d', label: 'Last 30 Days' },
-    { value: '90d', label: 'Last 90 Days' },
-  ];
+  const isNegKeywordsTab = contentType === 'neg-keywords';
+  const dateRangeOptions: { value: DateRange; label: string }[] = isNegKeywordsTab
+    ? [
+        { value: '1d', label: 'Last 1 Day' },
+        { value: '3d', label: 'Last 3 Days' },
+        { value: '7d', label: 'Last 7 Days' },
+      ]
+    : [
+        { value: '7d', label: 'Last 7 Days' },
+        { value: '30d', label: 'Last 30 Days' },
+        { value: '90d', label: 'Last 90 Days' },
+      ];
 
   const handleSaveFilter = (name: string) => {
     onSaveFilter(name);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters } from '@/types';
+import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview } from '@/types';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
 import { useSavedFilters } from '@/hooks/useSavedFilters';
@@ -13,6 +13,23 @@ import { Filters } from '@/components/Filters';
 import { DataTable } from '@/components/DataTable';
 import { ViewModeToggle } from '@/components/ViewModeToggle';
 import { ErrorBanner } from '@/components/ErrorBanner';
+
+const STANDARD_RANGES: DateRange[] = ['7d', '30d', '90d'];
+const NEG_KEYWORD_RANGES: DateRange[] = ['1d', '3d', '7d'];
+
+function mapDateRangeForTab(
+  currentRange: DateRange,
+  fromTab: ContentType | ErrorContentType,
+  toTab: ContentType | ErrorContentType
+): DateRange {
+  const fromIsNegKw = fromTab === 'neg-keywords';
+  const toIsNegKw = toTab === 'neg-keywords';
+  if (fromIsNegKw === toIsNegKw) return currentRange;
+  const fromRanges = fromIsNegKw ? NEG_KEYWORD_RANGES : STANDARD_RANGES;
+  const toRanges = toIsNegKw ? NEG_KEYWORD_RANGES : STANDARD_RANGES;
+  const posIndex = fromRanges.indexOf(currentRange);
+  return toRanges[posIndex >= 0 ? posIndex : 0];
+}
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<ContentType | ErrorContentType>('blogs');
@@ -40,6 +57,7 @@ export default function Dashboard() {
     filteredBlogs,
     filteredGmbPosts,
     filteredReplies,
+    filteredNegKeywords,
     filterCounts,
     filteredBlogErrors,
     filteredGmbPostErrors,
@@ -51,8 +69,8 @@ export default function Dashboard() {
   // Handle error mode toggle
   const handleToggleErrorMode = (isErrorMode: boolean) => {
     setShowErrors(isErrorMode);
-    // If switching to error mode and on replies tab, switch to blogs
-    if (isErrorMode && activeTab === 'replies') {
+    // If switching to error mode and on replies or neg-keywords tab, switch to blogs
+    if (isErrorMode && (activeTab === 'replies' || activeTab === 'neg-keywords')) {
       setActiveTab('blogs');
     }
   };
@@ -81,6 +99,14 @@ export default function Dashboard() {
         { key: 'postTitle', label: 'Post Title' },
         { key: 'keyword', label: 'Keyword' },
         { key: 'url', label: 'URL' },
+      ]);
+    } else if (activeTab === 'neg-keywords') {
+      exportToCSV(filteredNegKeywords, 'neg-keywords', [
+        { key: 'dateTime', label: 'Date/Time' },
+        { key: 'practiceName', label: 'Practice Name' },
+        { key: 'companyId', label: 'HSID' },
+        { key: 'campaignName', label: 'Campaign' },
+        { key: 'termsReviewed', label: 'Terms Reviewed' },
       ]);
     } else {
       exportToCSV(filteredReplies, 'replies', [
@@ -117,9 +143,12 @@ export default function Dashboard() {
 
   // Reset practice filter when switching tabs (practice vs account)
   // Also reset feature filter when leaving blogs tab
+  // Map date range by pill position when switching to/from neg-keywords
   const handleTabChange = (tab: ContentType | ErrorContentType) => {
+    const mappedRange = mapDateRangeForTab(selectedDateRange, activeTab, tab);
     setActiveTab(tab);
     setSelectedPractices([]);
+    setSelectedDateRange(mappedRange);
     if (tab !== 'blogs') setFeatureFilters({});
   };
 
@@ -292,6 +321,7 @@ export default function Dashboard() {
             blogs={featureFilteredBlogs}
             gmbPosts={filteredGmbPosts}
             replies={filteredReplies}
+            negKeywordReviews={filteredNegKeywords}
             isLoading={isLoading}
             isErrorMode={showErrors}
             blogErrors={filteredBlogErrors}

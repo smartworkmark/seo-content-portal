@@ -9,6 +9,7 @@ interface ContentTabsProps {
     blogs: number;
     gmbPosts: number;
     replies: number;
+    negKeywords: number;
   };
   isErrorMode?: boolean;
   errorCounts?: {
@@ -34,6 +35,7 @@ export function ContentTabs({
         { id: 'blogs' as const, label: 'Blogs', count: counts.blogs },
         { id: 'gmb-posts' as const, label: 'GMB Posts', count: counts.gmbPosts },
         { id: 'replies' as const, label: 'Replies', count: counts.replies },
+        { id: 'neg-keywords' as const, label: 'Neg. Keywords', count: counts.negKeywords },
       ];
 
   return (

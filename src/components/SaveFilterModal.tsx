@@ -64,6 +64,10 @@ export function SaveFilterModal({
 
   const getDateRangeLabel = (range: DateRange): string => {
     switch (range) {
+      case '1d':
+        return 'Last 1 day';
+      case '3d':
+        return 'Last 3 days';
       case '7d':
         return 'Last 7 days';
       case '30d':

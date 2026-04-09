@@ -1,5 +1,5 @@
 // Content Types
-export type ContentType = 'blogs' | 'gmb-posts' | 'replies';
+export type ContentType = 'blogs' | 'gmb-posts' | 'replies' | 'neg-keywords';
 
 // Feature filter mode: 'include' = show only blogs WITH feature, 'exclude' = show only blogs WITHOUT
 export type FeatureFilterMode = 'include' | 'exclude';
@@ -8,7 +8,7 @@ export type FeatureFilters = Record<string, FeatureFilterMode>;
 // Error content type (no replies in error mode)
 export type ErrorContentType = 'blogs' | 'gmb-posts';
 
-export type DateRange = '7d' | '30d' | '90d';
+export type DateRange = '1d' | '3d' | '7d' | '30d' | '90d';
 
 // Blog Post
 export interface BlogPost {
@@ -38,6 +38,16 @@ export interface GmbPost {
   postTitle: string;
   keyword: string;
   url: string;
+}
+
+// Negative Keyword Review
+export interface NegKeywordReview {
+  id: string;
+  dateTime: string;
+  practiceName: string;
+  companyId: string;
+  campaignName: string;
+  termsReviewed: number;
 }
 
 // GMB Reply
@@ -83,7 +93,7 @@ export interface SummaryData {
   blogs7d: number;
   gmbPosts7d: number;
   replies7d: number;
-  todayActivity: number;
+  negKeywordsTerms7d: number;
 }
 
 // API Response structure
@@ -91,6 +101,7 @@ export interface ContentResponse {
   blogs: BlogPost[];
   gmbPosts: GmbPost[];
   replies: GmbReply[];
+  negKeywordReviews: NegKeywordReview[];
   summary: SummaryData;
   practices: string[];
   accounts: string[];

@@ -57,14 +57,14 @@ The application follows a specific data flow pattern:
 - Requires `GOOGLE_SHEETS_ID` and `GOOGLE_API_KEY` in `.env.local`
 - Falls back to mock data automatically if not configured
 - No OAuth required (uses public API with API key)
-- Expected sheet names: "Blogs", "GMB Posts", "GMB Replies"
+- Expected sheet names: "Blogs", "GMB Posts", "GMB Replies", "Negative Keywords"
 - Data is NOT cached (`cache: 'no-store'`) for fresh data
 
 **Type System:**
 - All content types defined in `src/types/index.ts`
-- Three main content types: `BlogPost`, `GmbPost`, `GmbReply`
-- All blog/GMB types (including error types) include `companyId` for HubSpot integration
-- Unified filtering interface via `DateRange` (`'7d' | '30d' | '90d'`) and filter functions
+- Four main content types: `BlogPost`, `GmbPost`, `GmbReply`, `NegKeywordReview`
+- All blog/GMB/neg-keyword types (including error types) include `companyId` for HubSpot integration
+- Unified filtering interface via `DateRange` (`'1d' | '3d' | '7d' | '30d' | '90d'`) and filter functions
 - Path alias `@/*` maps to `./src/*`
 
 **Component Structure:**
@@ -185,6 +185,16 @@ The application expects three sheets with specific column structures:
 - Account Name, Date Time, Reply, Reviews URL, Make Execution, Review ID, Location ID
 - Required: Date Time, Account Name, Reply, Reviews URL (valid)
 
+**Negative Keywords:**
+- Practice, Campaign Name, Ad Channel Type, Report Start Date, Report End Date, Terms Reviewed, Company ID
+- Required: Report End Date (used as the display date), Practice
+- Optional: Company ID (HubSpot Company ID)
+- Parser matches headers flexibly: "Practice" or "Practice Name", "Report End Date" preferred over "Report Start Date"
+- `Terms Reviewed` parsed as integer (0 if missing/invalid); header matched with `startsWith('terms review')`
+- Dates are date-only (no time component), e.g. "2026-04-08"
+- No URL validation needed (no URL column)
+- No error tracking (unlike blogs/GMB posts)
+
 ## Critical Implementation Details
 
 ### URL Validation Logic
@@ -208,10 +218,13 @@ When modifying URL handling, understand the validation flow:
 
 ### Date Handling
 - Blogs/GMB Posts combine separate Date and Time columns into single datetime string
-- Replies use single "Date Time" column
+- Replies and Neg. Keywords use single "Date Time" / "Date and Time" column
 - Date parsing is lenient (handles various formats)
-- Date filtering uses threshold comparison (7d, 30d, 90d) — all options return a date threshold, there is no "all time"
-- Today's activity calculation uses date-only comparison (ignores time)
+- Date filtering uses threshold comparison (1d, 3d, 7d, 30d, 90d) — all options return a date threshold, there is no "all time"
+- Standard tabs (Blogs, GMB Posts, Replies) use 7d/30d/90d pills; Neg. Keywords tab uses 1d/3d/7d pills
+- Switching tabs maps date range by **pill position** (not value): position 0 ↔ position 0, etc.
+  - Standard `['7d', '30d', '90d']` ↔ Neg Keywords `['1d', '3d', '7d']`
+  - Logic lives in `mapDateRangeForTab()` in `page.tsx`
 
 ## Common Gotchas
 
@@ -238,6 +251,10 @@ When modifying URL handling, understand the validation flow:
 21. **Feature filter uses AND logic across modes** - Each active feature filter must be satisfied (include = blog has it, exclude = blog doesn't). Mixed include/exclude filters work together.
 22. **Blog rows with features are expandable; rows without are not** - The chevron and click handler only appear/activate when `blog.features.length > 0`. The detail panel always renders both feature cards if their boolean is true, even if the content column is empty.
 23. **Feature filter pill click cycles 3 states** - Off → Include (✓ colored) → Exclude (✗ rose) → Off. Inline table icons are highlighted only in include mode (`featureFilters[f] === 'include'`). Key absence in `featureFilters` record means off.
+24. **Neg. Keywords tab uses different date range pills** - 1d/3d/7d instead of 7d/30d/90d. Date range mapping by position happens in `handleTabChange` → `mapDateRangeForTab()`.
+25. **Neg. Keywords has no error mode or URL validation** - Like replies, it has no error tracking. Unlike all other content types, it has no URL column, so no URL validation is applied.
+26. **Neg. Keywords date column may be "Date and Time" or "Date Time"** - The parser checks for both header variants (case-insensitive).
+27. **Summary card "Terms Reviewed" is a sum, not a count** - Unlike other summary cards which count records, this card sums the `termsReviewed` field across all neg keyword records in the last 7 days.
 
 ## Environment Variables
 

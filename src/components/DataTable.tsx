@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
-import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
 import { TableSkeleton } from './SkeletonLoader';
@@ -17,6 +17,7 @@ interface DataTableProps {
   isErrorMode?: boolean;
   blogErrors?: BlogError[];
   gmbPostErrors?: GmbPostError[];
+  negKeywordReviews?: NegKeywordReview[];
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
 }
@@ -171,6 +172,7 @@ export function DataTable({
   isErrorMode = false,
   blogErrors = [],
   gmbPostErrors = [],
+  negKeywordReviews = [],
   featureFilters = {},
   onFeatureToggle,
 }: DataTableProps) {
@@ -188,7 +190,7 @@ export function DataTable({
   // Reset page when data length changes (e.g. feature filters applied that reduce total pages)
   useEffect(() => {
     setCurrentPage(1);
-  }, [blogs.length, gmbPosts.length, replies.length, blogErrors.length, gmbPostErrors.length]);
+  }, [blogs.length, gmbPosts.length, replies.length, negKeywordReviews.length, blogErrors.length, gmbPostErrors.length]);
 
   const handleSort = (column: string) => {
     setSort((prev) => ({
@@ -678,6 +680,100 @@ export function DataTable({
         onPageChange={setCurrentPage}
       />
     </div>
+    );
+  }
+
+  // Render Neg. Keywords Table
+  if (contentType === 'neg-keywords') {
+    const sortedData = sortData(negKeywordReviews, sort.column as keyof NegKeywordReview, sort.direction);
+    const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
+    const paginatedData = sortedData.slice(
+      (currentPage - 1) * ITEMS_PER_PAGE,
+      currentPage * ITEMS_PER_PAGE
+    );
+
+    return (
+      <div>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="max-h-[512px] overflow-y-auto overflow-x-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10 bg-gray-50">
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('dateTime')} className="flex items-center gap-1 hover:text-gray-900">
+                      Date/Time <SortIcon column="dateTime" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('practiceName')} className="flex items-center gap-1 hover:text-gray-900">
+                      Practice <SortIcon column="practiceName" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('companyId')} className="flex items-center gap-1 hover:text-gray-900">
+                      HSID <SortIcon column="companyId" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('campaignName')} className="flex items-center gap-1 hover:text-gray-900">
+                      Campaign <SortIcon column="campaignName" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('termsReviewed')} className="flex items-center gap-1 hover:text-gray-900">
+                      Terms Reviewed <SortIcon column="termsReviewed" />
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {paginatedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-16 text-center text-sm text-gray-500">
+                      No negative keyword reviews found for the selected filters.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedData.map((review) => (
+                    <tr key={review.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {formatDateTime(review.dateTime)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {review.practiceName}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {review.companyId && (
+                          <a
+                            href={`${HUBSPOT_URL}${review.companyId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-900 hover:text-indigo-950 hover:underline"
+                          >
+                            {review.companyId}
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {review.campaignName}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {review.termsReviewed.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={sortedData.length}
+          onPageChange={setCurrentPage}
+        />
+      </div>
     );
   }
 

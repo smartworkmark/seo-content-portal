@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ContentResponse, ErrorSummaryData } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData } from '@/types';
 
 // Sample practice names
 const practices = [
@@ -144,6 +144,34 @@ function generateReplies(count: number): GmbReply[] {
   return replies.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
 }
 
+// Sample campaign names for negative keywords
+const campaignNames = [
+  'Brand Campaign',
+  'Implants - Broad Match',
+  'Emergency Dental',
+  'Cosmetic Dentistry',
+  'Invisalign Campaign',
+  'General Dentistry - Local',
+  'Teeth Whitening Ads',
+  'New Patient Campaign',
+];
+
+// Generate mock negative keyword reviews
+function generateNegKeywordReviews(count: number): NegKeywordReview[] {
+  const reviews: NegKeywordReview[] = [];
+  for (let i = 0; i < count; i++) {
+    reviews.push({
+      id: `neg-kw-${i + 1}`,
+      dateTime: randomDate(14),
+      practiceName: practices[Math.floor(Math.random() * practices.length)],
+      companyId: companyIds[Math.floor(Math.random() * companyIds.length)],
+      campaignName: campaignNames[Math.floor(Math.random() * campaignNames.length)],
+      termsReviewed: Math.floor(Math.random() * 50) + 1,
+    });
+  }
+  return reviews.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
+}
+
 // Sample error messages for blogs
 const blogErrorMessages = [
   'Error: Unable to publish to Webflow',
@@ -213,28 +241,25 @@ function calculateErrorSummary(blogErrors: BlogError[], gmbPostErrors: GmbPostEr
 function calculateSummary(
   blogs: BlogPost[],
   gmbPosts: GmbPost[],
-  replies: GmbReply[]
-): { blogs7d: number; gmbPosts7d: number; replies7d: number; todayActivity: number } {
+  replies: GmbReply[],
+  negKeywordReviews: NegKeywordReview[]
+): { blogs7d: number; gmbPosts7d: number; replies7d: number; negKeywordsTerms7d: number } {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
   const blogs7d = blogs.filter((b) => new Date(b.date) >= sevenDaysAgo).length;
   const gmbPosts7d = gmbPosts.filter((p) => new Date(p.date) >= sevenDaysAgo).length;
   const replies7d = replies.filter((r) => new Date(r.dateTime) >= sevenDaysAgo).length;
-
-  const todayBlogs = blogs.filter((b) => new Date(b.date) >= today).length;
-  const todayPosts = gmbPosts.filter((p) => new Date(p.date) >= today).length;
-  const todayReplies = replies.filter((r) => new Date(r.dateTime) >= today).length;
+  const negKeywordsTerms7d = negKeywordReviews
+    .filter((n) => new Date(n.dateTime) >= sevenDaysAgo)
+    .reduce((sum, n) => sum + n.termsReviewed, 0);
 
   return {
     blogs7d,
     gmbPosts7d,
     replies7d,
-    todayActivity: todayBlogs + todayPosts + todayReplies,
+    negKeywordsTerms7d,
   };
 }
 
@@ -243,6 +268,7 @@ export function generateMockData(): ContentResponse {
   const blogs = generateBlogs(250);
   const gmbPosts = generateGmbPosts(350);
   const replies = generateReplies(180);
+  const negKeywordReviews = generateNegKeywordReviews(400);
   const blogErrors = generateBlogErrors(15);
   const gmbPostErrors = generateGmbPostErrors(25);
 
@@ -250,10 +276,12 @@ export function generateMockData(): ContentResponse {
     blogs,
     gmbPosts,
     replies,
-    summary: calculateSummary(blogs, gmbPosts, replies),
+    negKeywordReviews,
+    summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews),
     practices: [...new Set([
       ...blogs.map((b) => b.practiceName),
       ...gmbPosts.map((p) => p.practiceName),
+      ...negKeywordReviews.map((n) => n.practiceName),
       ...blogErrors.map((e) => e.practiceName),
       ...gmbPostErrors.map((e) => e.practiceName),
     ])].sort(),

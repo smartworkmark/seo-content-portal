@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, ContentResponse, ErrorSummaryData } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
 import { isValidUrl } from '@/lib/utils';
 
@@ -204,6 +204,28 @@ function parseReplies(rows: string[][]): GmbReply[] {
   })).filter((reply) => reply.dateTime && reply.accountName && reply.reply && isValidUrl(reply.url));
 }
 
+// Parse negative keyword reviews from sheet data
+// Actual columns: Practice, Campaign Name, Ad Channel Type, Report Start Date, Report End Date, Terms Reviewed, [Company ID if present]
+function parseNegKeywordReviews(rows: string[][]): NegKeywordReview[] {
+  if (rows.length <= 1) return [];
+
+  const headers = rows[0].map((h) => h.toLowerCase().trim());
+  const practiceIndex = headers.findIndex((h) => h === 'practice' || h === 'practice name');
+  const campaignIndex = headers.findIndex((h) => h === 'campaign name');
+  const termsIndex = headers.findIndex((h) => h.startsWith('terms review'));
+  const dateIndex = headers.findIndex((h) => h === 'date time of review');
+  const companyIdIndex = headers.findIndex((h) => h === 'company id' || h === 'companyid');
+
+  return rows.slice(1).map((row, index) => ({
+    id: `neg-kw-${index + 1}`,
+    dateTime: row[dateIndex] || '',
+    practiceName: row[practiceIndex] || '',
+    companyId: companyIdIndex >= 0 ? (row[companyIdIndex] || '') : '',
+    campaignName: row[campaignIndex] || '',
+    termsReviewed: parseInt(row[termsIndex], 10) || 0,
+  })).filter((review) => review.dateTime && review.practiceName);
+}
+
 // Helper to parse date strings
 function parseDate(dateStr: string): Date {
   // Try to parse date string (handles formats like "2025-09-15" or "2025-09-15 15:12" or "2025-11-20 17:44")
@@ -215,29 +237,26 @@ function parseDate(dateStr: string): Date {
 function calculateSummary(
   blogs: BlogPost[],
   gmbPosts: GmbPost[],
-  replies: GmbReply[]
+  replies: GmbReply[],
+  negKeywordReviews: NegKeywordReview[]
 ) {
   // Use 6 days ago to get a 7-day window inclusive of today (matches client-side '7d' filter)
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
   const blogs7d = blogs.filter((b) => parseDate(b.date) >= sevenDaysAgo).length;
   const gmbPosts7d = gmbPosts.filter((p) => parseDate(p.date) >= sevenDaysAgo).length;
   const replies7d = replies.filter((r) => parseDate(r.dateTime) >= sevenDaysAgo).length;
-
-  const todayBlogs = blogs.filter((b) => parseDate(b.date) >= today).length;
-  const todayPosts = gmbPosts.filter((p) => parseDate(p.date) >= today).length;
-  const todayReplies = replies.filter((r) => parseDate(r.dateTime) >= today).length;
+  const negKeywordsTerms7d = negKeywordReviews
+    .filter((n) => parseDate(n.dateTime) >= sevenDaysAgo)
+    .reduce((sum, n) => sum + n.termsReviewed, 0);
 
   return {
     blogs7d,
     gmbPosts7d,
     replies7d,
-    todayActivity: todayBlogs + todayPosts + todayReplies,
+    negKeywordsTerms7d,
   };
 }
 
@@ -266,28 +285,32 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
   }
 
   try {
-    // Fetch all three sheets in parallel
-    const [blogsData, gmbPostsData, repliesData] = await Promise.all([
+    // Fetch all sheets in parallel (neg keywords sheet may not exist yet — gracefully return empty)
+    const [blogsData, gmbPostsData, repliesData, negKeywordsData] = await Promise.all([
       fetchSheet('Blogs'),
       fetchSheet('GMB Posts'),
       fetchSheet('GMB Replies'),
+      fetchSheet('Negative Keywords').catch(() => [] as string[][]),
     ]);
 
     const { valid: blogs, errors: blogErrors } = parseBlogs(blogsData);
     const { valid: gmbPosts, errors: gmbPostErrors } = parseGmbPosts(gmbPostsData);
     const replies = parseReplies(repliesData);
+    const negKeywordReviews = parseNegKeywordReviews(negKeywordsData);
 
     // Sort by date descending
     blogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     gmbPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     replies.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
+    negKeywordReviews.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
     blogErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     gmbPostErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    // Extract unique practices and accounts (include practices from errors too)
+    // Extract unique practices and accounts (include practices from errors and neg keywords too)
     const practices = [...new Set([
       ...blogs.map((b) => b.practiceName),
       ...gmbPosts.map((p) => p.practiceName),
+      ...negKeywordReviews.map((n) => n.practiceName),
       ...blogErrors.map((e) => e.practiceName),
       ...gmbPostErrors.map((e) => e.practiceName),
     ])].sort();
@@ -298,7 +321,8 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       blogs,
       gmbPosts,
       replies,
-      summary: calculateSummary(blogs, gmbPosts, replies),
+      negKeywordReviews,
+      summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews),
       practices,
       accounts,
       blogErrors,

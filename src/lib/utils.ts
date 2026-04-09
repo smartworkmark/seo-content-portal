@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, DateRange } from '@/types';
+import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, NegKeywordReview, DateRange } from '@/types';
 
 // Format date for display
 export function formatDate(dateString: string): string {
@@ -25,23 +25,34 @@ export function formatDateTime(dateString: string): string {
 // Get date threshold based on range (inclusive of today)
 export function getDateThreshold(range: DateRange): Date {
   const now = new Date();
-  const days = range === '7d' ? 6 : range === '30d' ? 29 : 89;
+  const daysMap: Record<DateRange, number> = { '1d': 0, '3d': 2, '7d': 6, '30d': 29, '90d': 89 };
+  const days = daysMap[range];
   const threshold = new Date(now);
   threshold.setDate(threshold.getDate() - days);
   threshold.setHours(0, 0, 0, 0);
   return threshold;
 }
 
+// Parse date string, forcing date-only strings (e.g. "2026-04-09") to local time
+// (JS treats "YYYY-MM-DD" as UTC, but "YYYY-MM-DDTHH:mm:ss" as local — normalize to local)
+function parseLocalDate(dateString: string): Date {
+  // Date-only format: exactly "YYYY-MM-DD" with no time/timezone suffix
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateString.trim())) {
+    return new Date(dateString + 'T00:00:00');
+  }
+  return new Date(dateString);
+}
+
 // Check if date is within range
 export function isWithinDateRange(dateString: string, range: DateRange): boolean {
-  const date = new Date(dateString);
+  const date = parseLocalDate(dateString);
   const threshold = getDateThreshold(range);
   return date >= threshold;
 }
 
 // Check if date is today
 export function isToday(dateString: string): boolean {
-  const date = new Date(dateString);
+  const date = parseLocalDate(dateString);
   const today = new Date();
   return (
     date.getDate() === today.getDate() &&
@@ -148,6 +159,19 @@ export function filterGmbPostErrors(
   return errors.filter((error) => {
     const practiceMatch = practices.length === 0 || practices.includes(error.practiceName);
     const dateMatch = isWithinDateRange(error.date, dateRange);
+    return practiceMatch && dateMatch;
+  });
+}
+
+// Filter negative keyword reviews by practices and date range
+export function filterNegKeywordReviews(
+  reviews: NegKeywordReview[],
+  practices: string[],
+  dateRange: DateRange
+): NegKeywordReview[] {
+  return reviews.filter((review) => {
+    const practiceMatch = practices.length === 0 || practices.includes(review.practiceName);
+    const dateMatch = isWithinDateRange(review.dateTime, dateRange);
     return practiceMatch && dateMatch;
   });
 }
