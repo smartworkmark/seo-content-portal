@@ -15,18 +15,22 @@ import { ViewModeToggle } from '@/components/ViewModeToggle';
 import { ErrorBanner } from '@/components/ErrorBanner';
 
 const STANDARD_RANGES: DateRange[] = ['7d', '30d', '90d'];
-const NEG_KEYWORD_RANGES: DateRange[] = ['1d', '3d', '7d'];
+const SHORT_RANGES: DateRange[] = ['1d', '3d', '7d'];
+const SHORT_RANGE_TABS: ReadonlySet<ContentType | ErrorContentType> = new Set([
+  'neg-keywords',
+  'g-ads-pacing',
+]);
 
 function mapDateRangeForTab(
   currentRange: DateRange,
   fromTab: ContentType | ErrorContentType,
   toTab: ContentType | ErrorContentType
 ): DateRange {
-  const fromIsNegKw = fromTab === 'neg-keywords';
-  const toIsNegKw = toTab === 'neg-keywords';
-  if (fromIsNegKw === toIsNegKw) return currentRange;
-  const fromRanges = fromIsNegKw ? NEG_KEYWORD_RANGES : STANDARD_RANGES;
-  const toRanges = toIsNegKw ? NEG_KEYWORD_RANGES : STANDARD_RANGES;
+  const fromShort = SHORT_RANGE_TABS.has(fromTab);
+  const toShort = SHORT_RANGE_TABS.has(toTab);
+  if (fromShort === toShort) return currentRange;
+  const fromRanges = fromShort ? SHORT_RANGES : STANDARD_RANGES;
+  const toRanges = toShort ? SHORT_RANGES : STANDARD_RANGES;
   const posIndex = fromRanges.indexOf(currentRange);
   return toRanges[posIndex >= 0 ? posIndex : 0];
 }
@@ -58,12 +62,14 @@ export default function Dashboard() {
     filteredGmbPosts,
     filteredReplies,
     filteredNegKeywords,
+    filteredGAdsPacing,
     filterCounts,
     filteredBlogErrors,
     filteredGmbPostErrors,
     errorFilterCounts,
     errorSummary,
     clientSummary,
+    submitGAdsPacingFeedback,
   } = useContentData(selectedPractices, selectedDateRange);
 
   // Handle error mode toggle
@@ -107,6 +113,20 @@ export default function Dashboard() {
         { key: 'companyId', label: 'HSID' },
         { key: 'campaignName', label: 'Campaign' },
         { key: 'termsReviewed', label: 'Terms Reviewed' },
+      ]);
+    } else if (activeTab === 'g-ads-pacing') {
+      exportToCSV(filteredGAdsPacing, 'g-ads-pacing', [
+        { key: 'runDate', label: 'Run Date' },
+        { key: 'practiceName', label: 'Practice' },
+        { key: 'googleAdsId', label: 'Google Ads ID' },
+        { key: 'companyId', label: 'HSID' },
+        { key: 'severity', label: 'Severity' },
+        { key: 'monthlyBudget', label: 'Budget' },
+        { key: 'spendMtd', label: 'Spent MTD' },
+        { key: 'variancePercent', label: 'Variance %' },
+        { key: 'approvalStatus', label: 'Approval' },
+        { key: 'reviewedBy', label: 'Reviewed By' },
+        { key: 'notes', label: 'Notes' },
       ]);
     } else {
       exportToCSV(filteredReplies, 'replies', [
@@ -322,12 +342,14 @@ export default function Dashboard() {
             gmbPosts={filteredGmbPosts}
             replies={filteredReplies}
             negKeywordReviews={filteredNegKeywords}
+            gAdsPacing={filteredGAdsPacing}
             isLoading={isLoading}
             isErrorMode={showErrors}
             blogErrors={filteredBlogErrors}
             gmbPostErrors={filteredGmbPostErrors}
             featureFilters={featureFilters}
             onFeatureToggle={handleFeatureToggle}
+            onSubmitGAdsFeedback={submitGAdsPacingFeedback}
           />
         </section>
       </main>

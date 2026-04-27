@@ -57,7 +57,7 @@ The application follows a specific data flow pattern:
 - Requires `GOOGLE_SHEETS_ID` and `GOOGLE_API_KEY` in `.env.local`
 - Falls back to mock data automatically if not configured
 - No OAuth required (uses public API with API key)
-- Expected sheet names: "Blogs", "GMB Posts", "GMB Replies", "Negative Keywords"
+- Expected sheet names: "Blogs", "GMB Posts", "GMB Replies", "Negative Keywords", "G Ads Pacing"
 - Data is NOT cached (`cache: 'no-store'`) for fresh data
 
 **Type System:**
@@ -195,6 +195,18 @@ The application expects three sheets with specific column structures:
 - No URL validation needed (no URL column)
 - No error tracking (unlike blogs/GMB posts)
 
+**G Ads Pacing:**
+- 29 columns; the source rows are **campaign-level** (one row per campaign per run date). Account-level fields repeat across all campaign rows of the same `(Run Date, google_ads_id)` account.
+- Columns: Run Date, run_id, practice_name, google_ads_id, HS ID, campaign_id, campaign_name, account_monthly_budget, account_actual_spend_mtd, campaign_actual_spend_mtd, account_expected_spend_mtd, account_variance_percent, account_current_daily_budget, campaign_current_daily_budget, account_proposed_daily_budget, campaign_proposed_daily_budget, spend_share, yesterday_account_proposed, account_proposed_multiple, campaign_proposed_multiple, status, recommendation_type, applied, correction_percent, damped_from, severity, approval_status, reviewed_by, notes
+- Required: Run Date, google_ads_id (used as group key)
+- The parser groups rows into one `GAdsPacingRecord` per `(runDate, googleAdsId)` with a `campaigns[]` array. Each campaign carries its own `recommendation_type` and per-campaign budget/spend.
+- Severity values: `OK`, `Auto`, `Alert`, `Underpace`, `Critical`, `Investigate` (read directly from `severity` column; empty = `OK`).
+- Recommendation types per campaign (6 enums): `PAUSE_CAMPAIGN`, `BUDGET_DECREASE_APPROVAL`, `BUDGET_INCREASE_APPROVAL`, `BUDGET_DECREASE`, `BUDGET_INCREASE`, `NO_CHANGE`.
+- Action dot color coding: red = pause; amber = approval-pending; blue = auto-applied; `NO_CHANGE` not shown.
+- Fetched with range `A:AC` (extends past column Z); `fetchSheet()` accepts an optional range parameter for sheets wider than 26 columns.
+- Sheet may not exist in older spreadsheets — fetch is wrapped in `.catch(() => [])` for graceful empty fallback.
+- No URL validation, no error tracking.
+
 ## Critical Implementation Details
 
 ### URL Validation Logic
@@ -221,9 +233,10 @@ When modifying URL handling, understand the validation flow:
 - Replies and Neg. Keywords use single "Date Time" / "Date and Time" column
 - Date parsing is lenient (handles various formats)
 - Date filtering uses threshold comparison (1d, 3d, 7d, 30d, 90d) — all options return a date threshold, there is no "all time"
-- Standard tabs (Blogs, GMB Posts, Replies) use 7d/30d/90d pills; Neg. Keywords tab uses 1d/3d/7d pills
+- Standard tabs (Blogs, GMB Posts, Replies) use 7d/30d/90d pills; **short-range tabs (Neg. Keywords, G Ads Pacing) use 1d/3d/7d pills**
 - Switching tabs maps date range by **pill position** (not value): position 0 ↔ position 0, etc.
-  - Standard `['7d', '30d', '90d']` ↔ Neg Keywords `['1d', '3d', '7d']`
+  - Standard `['7d', '30d', '90d']` ↔ Short `['1d', '3d', '7d']`
+  - `SHORT_RANGE_TABS` in `page.tsx` is the set of tabs that use the short pills (currently `neg-keywords`, `g-ads-pacing`)
   - Logic lives in `mapDateRangeForTab()` in `page.tsx`
 
 ## Common Gotchas
@@ -255,6 +268,12 @@ When modifying URL handling, understand the validation flow:
 25. **Neg. Keywords has no error mode or URL validation** - Like replies, it has no error tracking. Unlike all other content types, it has no URL column, so no URL validation is applied.
 26. **Neg. Keywords date column may be "Date and Time" or "Date Time"** - The parser checks for both header variants (case-insensitive).
 27. **Summary card "Terms Reviewed" is a sum, not a count** - Unlike other summary cards which count records, this card sums the `termsReviewed` field across all neg keyword records in the last 7 days.
+28. **G Ads Pacing source rows are campaign-level; the table groups them** - The parser produces one `GAdsPacingRecord` per `(runDate, googleAdsId)` with embedded `campaigns[]`. Account-level fields are taken from the first row in the group; if the first row has empty severity/approval/notes, later rows fill them in. Don't iterate raw rows in components — use the grouped record.
+29. **G Ads Pacing feedback writes back via Make.com webhook** - On submit, the panel POSTs `{ run_date, google_ads_id, approval_status, reviewed_by, notes }` (exactly 5 snake_case keys) to `NEXT_PUBLIC_MAKE_FEEDBACK_WEBHOOK_URL`. The Make.com scenario is responsible for updating every campaign row of that account in the sheet. The portal optimistically updates local hook state on success so the row reflects the new status without a refetch.
+30. **G Ads Pacing has no error mode and no URL validation** - Like Replies and Neg. Keywords, no error tracking. The tab is hidden in error mode (only Blogs and GMB posts show errors).
+31. **`fetchSheet()` defaults to range `A:Z` but accepts a wider range** - G Ads Pacing has 29 columns and is fetched with `'A:AC'`. Other sheets (≤26 columns) keep the default. Pass an explicit range when adding sheets that extend past column Z.
+32. **G Ads Pacing default sort is `runDate desc`** - Set in the tab-change effect in `DataTable.tsx`. The shared default `{ column: 'date', direction: 'desc' }` doesn't apply to this tab because the field is `runDate`, not `date`. Without this override, sorting silently degrades to source order.
+33. **G Ads Pacing date column uses compact MM/DD format** - Via `fmtCompactDate()` in `src/lib/g-ads-pacing.ts`. Year is omitted because pacing is reviewed daily and the visible window is only 1d/3d/7d. If the tab ever spans years, revisit this format.
 
 ## Environment Variables
 
@@ -265,3 +284,4 @@ Required for production Google Sheets integration (optional for development):
 The app gracefully falls back to mock data if these are not set.
 
 - `NEXT_PUBLIC_N8N_CHAT_WEBHOOK_URL` - n8n webhook URL for the chat widget (must be a `NEXT_PUBLIC_` var since it's used client-side)
+- `NEXT_PUBLIC_MAKE_FEEDBACK_WEBHOOK_URL` - Make.com webhook URL that receives `{ run_date, google_ads_id, approval_status, reviewed_by, notes }` payloads from the G Ads Pacing review panel. The Make.com scenario writes the three feedback fields back to every matching row of the `G Ads Pacing` sheet. Without this var the submit button errors out. Must be `NEXT_PUBLIC_` since the POST is made from the browser.

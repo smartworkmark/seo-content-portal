@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, RecommendationType, Severity } from '@/types';
 
 // Sample practice names
 const practices = [
@@ -242,8 +242,9 @@ function calculateSummary(
   blogs: BlogPost[],
   gmbPosts: GmbPost[],
   replies: GmbReply[],
-  negKeywordReviews: NegKeywordReview[]
-): { blogs7d: number; gmbPosts7d: number; replies7d: number; negKeywordsTerms7d: number } {
+  negKeywordReviews: NegKeywordReview[],
+  gAdsPacing: GAdsPacingRecord[]
+): { blogs7d: number; gmbPosts7d: number; replies7d: number; negKeywordsTerms7d: number; gAdsPacingPending7d: number } {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   sevenDaysAgo.setHours(0, 0, 0, 0);
@@ -254,13 +255,68 @@ function calculateSummary(
   const negKeywordsTerms7d = negKeywordReviews
     .filter((n) => new Date(n.dateTime) >= sevenDaysAgo)
     .reduce((sum, n) => sum + n.termsReviewed, 0);
+  const gAdsPacingPending7d = gAdsPacing.filter(
+    (g) => new Date(g.runDate) >= sevenDaysAgo && g.approvalStatus === ''
+  ).length;
 
   return {
     blogs7d,
     gmbPosts7d,
     replies7d,
     negKeywordsTerms7d,
+    gAdsPacingPending7d,
   };
+}
+
+// Generate g-ads pacing mock records
+function generateGAdsPacing(count: number): GAdsPacingRecord[] {
+  const severities: Severity[] = ['OK', 'Auto', 'Alert', 'Underpace', 'Critical', 'Investigate'];
+  const recs: RecommendationType[] = [
+    'PAUSE_CAMPAIGN',
+    'BUDGET_DECREASE_APPROVAL',
+    'BUDGET_INCREASE_APPROVAL',
+    'BUDGET_DECREASE',
+    'BUDGET_INCREASE',
+    'NO_CHANGE',
+  ];
+  const today = new Date();
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - (i % 7));
+    const runDate = d.toISOString().slice(0, 10);
+    const practice = practices[i % practices.length];
+    const googleAdsId = `${1000000000 + i}`;
+    const monthlyBudget = 2000 + (i % 5) * 500;
+    const variance = -50 + ((i * 17) % 100);
+    const expected = monthlyBudget * 0.7;
+    const spend = Math.round(expected * (1 + variance / 100));
+    return {
+      id: `${runDate}|${googleAdsId}`,
+      runDate,
+      runId: `mock-run-${i}`,
+      practiceName: practice,
+      googleAdsId,
+      companyId: companyIds[i % companyIds.length] || '',
+      monthlyBudget,
+      spendMtd: spend,
+      expectedSpendMtd: Math.round(expected),
+      variancePercent: variance,
+      currentDailyBudget: Math.round(monthlyBudget / 30),
+      proposedDailyBudget: Math.round((monthlyBudget / 30) * 0.8),
+      severity: severities[i % severities.length],
+      approvalStatus: i % 4 === 0 ? 'Approved' : '',
+      reviewedBy: i % 4 === 0 ? 'Mark' : '',
+      notes: '',
+      campaigns: Array.from({ length: 2 + (i % 3) }, (_, j) => ({
+        campaignId: `${20000000 + i * 10 + j}`,
+        campaignName: ['General Dentistry', 'Implants', 'Emergency', 'Cosmetic'][j % 4],
+        spendMtd: Math.round(spend / (2 + (i % 3))),
+        currentDaily: Math.round(monthlyBudget / 30 / (2 + (i % 3))),
+        proposedDaily: Math.round((monthlyBudget / 30 / (2 + (i % 3))) * 0.7),
+        recommendationType: recs[(i + j) % recs.length],
+      })),
+    };
+  });
 }
 
 // Generate complete mock data
@@ -269,6 +325,7 @@ export function generateMockData(): ContentResponse {
   const gmbPosts = generateGmbPosts(350);
   const replies = generateReplies(180);
   const negKeywordReviews = generateNegKeywordReviews(400);
+  const gAdsPacing = generateGAdsPacing(40);
   const blogErrors = generateBlogErrors(15);
   const gmbPostErrors = generateGmbPostErrors(25);
 
@@ -277,11 +334,13 @@ export function generateMockData(): ContentResponse {
     gmbPosts,
     replies,
     negKeywordReviews,
-    summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews),
+    gAdsPacing,
+    summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing),
     practices: [...new Set([
       ...blogs.map((b) => b.practiceName),
       ...gmbPosts.map((p) => p.practiceName),
       ...negKeywordReviews.map((n) => n.practiceName),
+      ...gAdsPacing.map((g) => g.practiceName),
       ...blogErrors.map((e) => e.practiceName),
       ...gmbPostErrors.map((e) => e.practiceName),
     ])].sort(),

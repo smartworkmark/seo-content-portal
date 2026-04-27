@@ -10,6 +10,7 @@ interface ContentTabsProps {
     gmbPosts: number;
     replies: number;
     negKeywords: number;
+    gAdsPacing: number;
   };
   isErrorMode?: boolean;
   errorCounts?: {
@@ -36,6 +37,7 @@ export function ContentTabs({
         { id: 'gmb-posts' as const, label: 'GMB Posts', count: counts.gmbPosts },
         { id: 'replies' as const, label: 'Replies', count: counts.replies },
         { id: 'neg-keywords' as const, label: 'Neg. Keywords', count: counts.negKeywords },
+        { id: 'g-ads-pacing' as const, label: 'G Ads Pacing', count: counts.gAdsPacing },
       ];
 
   return (

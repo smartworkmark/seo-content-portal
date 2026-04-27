@@ -46,8 +46,8 @@ export function Filters({
   const filterLabel = isRepliesTab ? 'Account' : 'Practice';
   const filterOptions = isRepliesTab ? accounts : practices;
 
-  const isNegKeywordsTab = contentType === 'neg-keywords';
-  const dateRangeOptions: { value: DateRange; label: string }[] = isNegKeywordsTab
+  const isShortRangeTab = contentType === 'neg-keywords' || contentType === 'g-ads-pacing';
+  const dateRangeOptions: { value: DateRange; label: string }[] = isShortRangeTab
     ? [
         { value: '1d', label: 'Last 1 Day' },
         { value: '3d', label: 'Last 3 Days' },

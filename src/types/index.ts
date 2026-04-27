@@ -1,5 +1,5 @@
 // Content Types
-export type ContentType = 'blogs' | 'gmb-posts' | 'replies' | 'neg-keywords';
+export type ContentType = 'blogs' | 'gmb-posts' | 'replies' | 'neg-keywords' | 'g-ads-pacing';
 
 // Feature filter mode: 'include' = show only blogs WITH feature, 'exclude' = show only blogs WITHOUT
 export type FeatureFilterMode = 'include' | 'exclude';
@@ -50,6 +50,48 @@ export interface NegKeywordReview {
   termsReviewed: number;
 }
 
+// G Ads Pacing
+export type Severity = 'OK' | 'Auto' | 'Alert' | 'Underpace' | 'Critical' | 'Investigate';
+
+export type RecommendationType =
+  | 'PAUSE_CAMPAIGN'
+  | 'BUDGET_DECREASE_APPROVAL'
+  | 'BUDGET_INCREASE_APPROVAL'
+  | 'BUDGET_DECREASE'
+  | 'BUDGET_INCREASE'
+  | 'NO_CHANGE';
+
+export type ApprovalStatus = '' | 'Approved' | 'Rejected';
+
+export interface GAdsPacingCampaign {
+  campaignId: string;
+  campaignName: string;
+  spendMtd: number;
+  currentDaily: number;
+  proposedDaily: number;
+  recommendationType: RecommendationType | '';
+}
+
+export interface GAdsPacingRecord {
+  id: string;
+  runDate: string;
+  runId: string;
+  practiceName: string;
+  googleAdsId: string;
+  companyId: string;
+  monthlyBudget: number;
+  spendMtd: number;
+  expectedSpendMtd: number;
+  variancePercent: number;
+  currentDailyBudget: number;
+  proposedDailyBudget: number;
+  severity: Severity;
+  approvalStatus: ApprovalStatus;
+  reviewedBy: string;
+  notes: string;
+  campaigns: GAdsPacingCampaign[];
+}
+
 // GMB Reply
 export interface GmbReply {
   id: string;
@@ -94,6 +136,7 @@ export interface SummaryData {
   gmbPosts7d: number;
   replies7d: number;
   negKeywordsTerms7d: number;
+  gAdsPacingPending7d: number;
 }
 
 // API Response structure
@@ -102,6 +145,7 @@ export interface ContentResponse {
   gmbPosts: GmbPost[];
   replies: GmbReply[];
   negKeywordReviews: NegKeywordReview[];
+  gAdsPacing: GAdsPacingRecord[];
   summary: SummaryData;
   practices: string[];
   accounts: string[];

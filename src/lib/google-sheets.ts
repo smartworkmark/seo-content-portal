@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, Severity, ApprovalStatus, RecommendationType } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
 import { isValidUrl } from '@/lib/utils';
 
@@ -8,12 +8,12 @@ function isConfigured(): boolean {
 }
 
 // Fetch data from a specific sheet using public API
-async function fetchSheet(sheetName: string): Promise<string[][]> {
+async function fetchSheet(sheetName: string, range = 'A:Z'): Promise<string[][]> {
   const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
   const apiKey = process.env.GOOGLE_API_KEY;
   const encodedSheetName = encodeURIComponent(sheetName);
 
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedSheetName}!A:Z?key=${apiKey}`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${encodedSheetName}!${range}?key=${apiKey}`;
 
   try {
     const response = await fetch(url, {
@@ -226,6 +226,139 @@ function parseNegKeywordReviews(rows: string[][]): NegKeywordReview[] {
   })).filter((review) => review.dateTime && review.practiceName);
 }
 
+// Parse G Ads Pacing rows (campaign-level) and group into per-account records keyed by (run_date, google_ads_id).
+// Sheet columns: Run Date, run_id, practice_name, google_ads_id, HS ID, campaign_id, campaign_name,
+// account_monthly_budget, account_actual_spend_mtd, campaign_actual_spend_mtd, account_expected_spend_mtd,
+// account_variance_percent, account_current_daily_budget, campaign_current_daily_budget,
+// account_proposed_daily_budget, campaign_proposed_daily_budget, spend_share, yesterday_account_proposed,
+// account_proposed_multiple, campaign_proposed_multiple, status, recommendation_type, applied,
+// correction_percent, damped_from, severity, approval_status, reviewed_by, notes
+const VALID_SEVERITIES: readonly Severity[] = ['OK', 'Auto', 'Alert', 'Underpace', 'Critical', 'Investigate'] as const;
+const VALID_RECOMMENDATIONS: readonly RecommendationType[] = [
+  'PAUSE_CAMPAIGN',
+  'BUDGET_DECREASE_APPROVAL',
+  'BUDGET_INCREASE_APPROVAL',
+  'BUDGET_DECREASE',
+  'BUDGET_INCREASE',
+  'NO_CHANGE',
+] as const;
+
+function toNum(s: string | undefined): number {
+  if (!s) return 0;
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeSeverity(raw: string): Severity {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return 'OK';
+  // Match case-insensitively, return canonical capitalization
+  const found = VALID_SEVERITIES.find((s) => s.toLowerCase() === trimmed.toLowerCase());
+  return found ?? 'OK';
+}
+
+function normalizeRecommendation(raw: string): RecommendationType | '' {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  const found = VALID_RECOMMENDATIONS.find((r) => r === trimmed);
+  return found ?? '';
+}
+
+function normalizeApprovalStatus(raw: string): ApprovalStatus {
+  const trimmed = (raw || '').trim().toLowerCase();
+  if (trimmed === 'approved') return 'Approved';
+  if (trimmed === 'rejected') return 'Rejected';
+  return '';
+}
+
+function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
+  if (rows.length <= 1) return [];
+
+  const headers = rows[0].map((h) => h.toLowerCase().trim());
+  const idx = (name: string) => headers.findIndex((h) => h === name);
+
+  const runDateIdx = idx('run date');
+  const runIdIdx = idx('run_id');
+  const practiceIdx = idx('practice_name');
+  const googleAdsIdx = idx('google_ads_id');
+  const hsIdIdx = idx('hs id');
+  const campaignIdIdx = idx('campaign_id');
+  const campaignNameIdx = idx('campaign_name');
+  const monthlyBudgetIdx = idx('account_monthly_budget');
+  const accountSpendIdx = idx('account_actual_spend_mtd');
+  const campaignSpendIdx = idx('campaign_actual_spend_mtd');
+  const expectedSpendIdx = idx('account_expected_spend_mtd');
+  const varianceIdx = idx('account_variance_percent');
+  const accountCurrentDailyIdx = idx('account_current_daily_budget');
+  const campaignCurrentDailyIdx = idx('campaign_current_daily_budget');
+  const accountProposedDailyIdx = idx('account_proposed_daily_budget');
+  const campaignProposedDailyIdx = idx('campaign_proposed_daily_budget');
+  const recommendationIdx = idx('recommendation_type');
+  const severityIdx = idx('severity');
+  const approvalIdx = idx('approval_status');
+  const reviewedByIdx = idx('reviewed_by');
+  const notesIdx = idx('notes');
+
+  const groups = new Map<string, GAdsPacingRecord>();
+
+  rows.slice(1).forEach((row) => {
+    const runDate = row[runDateIdx] || '';
+    const googleAdsId = googleAdsIdx >= 0 ? (row[googleAdsIdx] || '') : '';
+    if (!runDate || !googleAdsId) return;
+
+    const key = `${runDate}|${googleAdsId}`;
+    const campaign: GAdsPacingCampaign = {
+      campaignId: campaignIdIdx >= 0 ? (row[campaignIdIdx] || '') : '',
+      campaignName: campaignNameIdx >= 0 ? (row[campaignNameIdx] || '') : '',
+      spendMtd: toNum(row[campaignSpendIdx]),
+      currentDaily: toNum(row[campaignCurrentDailyIdx]),
+      proposedDaily: toNum(row[campaignProposedDailyIdx]),
+      recommendationType: normalizeRecommendation(row[recommendationIdx] || ''),
+    };
+
+    const existing = groups.get(key);
+    if (existing) {
+      existing.campaigns.push(campaign);
+      // Fill in account-level fields if a later row has values where the first didn't
+      if (!existing.severity || existing.severity === 'OK') {
+        const sev = normalizeSeverity(row[severityIdx] || '');
+        if (sev !== 'OK') existing.severity = sev;
+      }
+      if (!existing.approvalStatus) {
+        existing.approvalStatus = normalizeApprovalStatus(row[approvalIdx] || '');
+      }
+      if (!existing.reviewedBy && reviewedByIdx >= 0) {
+        existing.reviewedBy = row[reviewedByIdx] || '';
+      }
+      if (!existing.notes && notesIdx >= 0) {
+        existing.notes = row[notesIdx] || '';
+      }
+    } else {
+      groups.set(key, {
+        id: key,
+        runDate,
+        runId: runIdIdx >= 0 ? (row[runIdIdx] || '') : '',
+        practiceName: practiceIdx >= 0 ? (row[practiceIdx] || '') : '',
+        googleAdsId,
+        companyId: hsIdIdx >= 0 ? (row[hsIdIdx] || '') : '',
+        monthlyBudget: toNum(row[monthlyBudgetIdx]),
+        spendMtd: toNum(row[accountSpendIdx]),
+        expectedSpendMtd: toNum(row[expectedSpendIdx]),
+        variancePercent: toNum(row[varianceIdx]),
+        currentDailyBudget: toNum(row[accountCurrentDailyIdx]),
+        proposedDailyBudget: toNum(row[accountProposedDailyIdx]),
+        severity: normalizeSeverity(row[severityIdx] || ''),
+        approvalStatus: normalizeApprovalStatus(row[approvalIdx] || ''),
+        reviewedBy: reviewedByIdx >= 0 ? (row[reviewedByIdx] || '') : '',
+        notes: notesIdx >= 0 ? (row[notesIdx] || '') : '',
+        campaigns: [campaign],
+      });
+    }
+  });
+
+  return Array.from(groups.values());
+}
+
 // Helper to parse date strings
 function parseDate(dateStr: string): Date {
   // Try to parse date string (handles formats like "2025-09-15" or "2025-09-15 15:12" or "2025-11-20 17:44")
@@ -238,7 +371,8 @@ function calculateSummary(
   blogs: BlogPost[],
   gmbPosts: GmbPost[],
   replies: GmbReply[],
-  negKeywordReviews: NegKeywordReview[]
+  negKeywordReviews: NegKeywordReview[],
+  gAdsPacing: GAdsPacingRecord[]
 ) {
   // Use 6 days ago to get a 7-day window inclusive of today (matches client-side '7d' filter)
   const sevenDaysAgo = new Date();
@@ -251,12 +385,16 @@ function calculateSummary(
   const negKeywordsTerms7d = negKeywordReviews
     .filter((n) => parseDate(n.dateTime) >= sevenDaysAgo)
     .reduce((sum, n) => sum + n.termsReviewed, 0);
+  const gAdsPacingPending7d = gAdsPacing.filter(
+    (g) => parseDate(g.runDate) >= sevenDaysAgo && g.approvalStatus === ''
+  ).length;
 
   return {
     blogs7d,
     gmbPosts7d,
     replies7d,
     negKeywordsTerms7d,
+    gAdsPacingPending7d,
   };
 }
 
@@ -285,35 +423,39 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
   }
 
   try {
-    // Fetch all sheets in parallel (neg keywords sheet may not exist yet — gracefully return empty)
-    const [blogsData, gmbPostsData, repliesData, negKeywordsData] = await Promise.all([
+    // Fetch all sheets in parallel (newer sheets may not exist yet — gracefully return empty)
+    const [blogsData, gmbPostsData, repliesData, negKeywordsData, gAdsPacingData] = await Promise.all([
       fetchSheet('Blogs'),
       fetchSheet('GMB Posts'),
       fetchSheet('GMB Replies'),
       fetchSheet('Negative Keywords').catch(() => [] as string[][]),
+      fetchSheet('G Ads Pacing', 'A:AC').catch(() => [] as string[][]),
     ]);
 
     const { valid: blogs, errors: blogErrors } = parseBlogs(blogsData);
     const { valid: gmbPosts, errors: gmbPostErrors } = parseGmbPosts(gmbPostsData);
     const replies = parseReplies(repliesData);
     const negKeywordReviews = parseNegKeywordReviews(negKeywordsData);
+    const gAdsPacing = parseGAdsPacing(gAdsPacingData);
 
     // Sort by date descending
     blogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     gmbPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     replies.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
     negKeywordReviews.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
+    gAdsPacing.sort((a, b) => new Date(b.runDate).getTime() - new Date(a.runDate).getTime());
     blogErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     gmbPostErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    // Extract unique practices and accounts (include practices from errors and neg keywords too)
+    // Extract unique practices and accounts (include practices from errors, neg keywords, and pacing too)
     const practices = [...new Set([
       ...blogs.map((b) => b.practiceName),
       ...gmbPosts.map((p) => p.practiceName),
       ...negKeywordReviews.map((n) => n.practiceName),
+      ...gAdsPacing.map((g) => g.practiceName),
       ...blogErrors.map((e) => e.practiceName),
       ...gmbPostErrors.map((e) => e.practiceName),
-    ])].sort();
+    ].filter(Boolean))].sort();
 
     const accounts = [...new Set(replies.map((r) => r.accountName))].sort();
 
@@ -322,7 +464,8 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       gmbPosts,
       replies,
       negKeywordReviews,
-      summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews),
+      gAdsPacing,
+      summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing),
       practices,
       accounts,
       blogErrors,

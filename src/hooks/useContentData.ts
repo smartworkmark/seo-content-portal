@@ -1,9 +1,15 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ErrorSummaryData } from '@/types';
-import { filterBlogs, filterGmbPosts, filterReplies, filterNegKeywordReviews, filterBlogErrors, filterGmbPostErrors } from '@/lib/utils';
+import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, ApprovalStatus, BlogError, GmbPostError, ErrorSummaryData } from '@/types';
+import { filterBlogs, filterGmbPosts, filterReplies, filterNegKeywordReviews, filterGAdsPacing, filterBlogErrors, filterGmbPostErrors } from '@/lib/utils';
 import { SummaryData } from '@/types';
+
+export interface GAdsPacingFeedbackPayload {
+  approvalStatus: ApprovalStatus;
+  reviewedBy: string;
+  notes: string;
+}
 
 interface UseContentDataReturn {
   data: ContentResponse | null;
@@ -14,8 +20,10 @@ interface UseContentDataReturn {
   filteredGmbPosts: GmbPost[];
   filteredReplies: GmbReply[];
   filteredNegKeywords: NegKeywordReview[];
-  filterCounts: { blogs: number; gmbPosts: number; replies: number; negKeywords: number };
+  filteredGAdsPacing: GAdsPacingRecord[];
+  filterCounts: { blogs: number; gmbPosts: number; replies: number; negKeywords: number; gAdsPacing: number };
   clientSummary: SummaryData | null;
+  submitGAdsPacingFeedback: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
   // Error data
   blogErrors: BlogError[];
   gmbPostErrors: GmbPostError[];
@@ -86,12 +94,17 @@ export function useContentData(
     ? filterNegKeywordReviews(data.negKeywordReviews, selectedPractices, selectedDateRange)
     : [];
 
+  const filteredGAdsPacing = data
+    ? filterGAdsPacing(data.gAdsPacing, selectedPractices, selectedDateRange)
+    : [];
+
   // Calculate filtered counts for tab badges
   const filterCounts = {
     blogs: filteredBlogs.length,
     gmbPosts: filteredGmbPosts.length,
     replies: filteredReplies.length,
     negKeywords: filteredNegKeywords.length,
+    gAdsPacing: filteredGAdsPacing.length,
   };
 
   // Compute summary counts client-side (same date parsing as filters, avoids server timezone issues)
@@ -101,13 +114,56 @@ export function useContentData(
     const replies7d = filterReplies(data.replies, [], '7d');
     const negKeywords7d = filterNegKeywordReviews(data.negKeywordReviews, [], '7d');
     const negKeywordsTerms7d = negKeywords7d.reduce((sum, n) => sum + n.termsReviewed, 0);
+    const pacing7d = filterGAdsPacing(data.gAdsPacing, [], '7d');
+    const gAdsPacingPending7d = pacing7d.filter((g) => g.approvalStatus === '').length;
     return {
       blogs7d: blogs7d.length,
       gmbPosts7d: gmbPosts7d.length,
       replies7d: replies7d.length,
       negKeywordsTerms7d,
+      gAdsPacingPending7d,
     };
   })() : null;
+
+  const submitGAdsPacingFeedback = useCallback(async (
+    record: GAdsPacingRecord,
+    payload: GAdsPacingFeedbackPayload,
+  ) => {
+    const webhookUrl = process.env.NEXT_PUBLIC_MAKE_FEEDBACK_WEBHOOK_URL;
+    if (!webhookUrl) {
+      throw new Error('NEXT_PUBLIC_MAKE_FEEDBACK_WEBHOOK_URL is not configured');
+    }
+
+    const body = {
+      run_date: record.runDate,
+      google_ads_id: record.googleAdsId,
+      approval_status: payload.approvalStatus,
+      reviewed_by: payload.reviewedBy,
+      notes: payload.notes,
+    };
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`Webhook failed with ${response.status}`);
+    }
+
+    // Optimistically update local state so the row reflects the new status without waiting for re-fetch
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        gAdsPacing: prev.gAdsPacing.map((r) =>
+          r.id === record.id
+            ? { ...r, approvalStatus: payload.approvalStatus, reviewedBy: payload.reviewedBy, notes: payload.notes }
+            : r
+        ),
+      };
+    });
+  }, []);
 
   // Error data
   const blogErrors = data?.blogErrors ?? [];
@@ -137,8 +193,10 @@ export function useContentData(
     filteredGmbPosts,
     filteredReplies,
     filteredNegKeywords,
+    filteredGAdsPacing,
     filterCounts,
     clientSummary,
+    submitGAdsPacingFeedback,
     // Error data
     blogErrors,
     gmbPostErrors,

@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
-import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
+import { SEVERITY_STYLES, actionDotCounts, fmtCompactDate, fmtMoney, fmtSignedPercent, variancePercentTone } from '@/lib/g-ads-pacing';
+import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
+import type { GAdsPacingFeedbackPayload } from '@/hooks/useContentData';
 import { TableSkeleton } from './SkeletonLoader';
 
 const HUBSPOT_URL = 'https://app.hubspot.com/contacts/22697387/record/0-2/';
@@ -18,8 +21,10 @@ interface DataTableProps {
   blogErrors?: BlogError[];
   gmbPostErrors?: GmbPostError[];
   negKeywordReviews?: NegKeywordReview[];
+  gAdsPacing?: GAdsPacingRecord[];
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
+  onSubmitGAdsFeedback?: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
 }
 
 // Inline feature icon with tooltip and click-to-filter
@@ -74,6 +79,29 @@ function FeatureIcon({ feature, isHighlighted, onClick }: {
           {config.label}
         </span>
       )}
+    </span>
+  );
+}
+
+// Colored dot + count badge for the G Ads Pacing Actions column
+function ActionDot({ color, count, label }: { color: string; count: number; label: string }) {
+  return (
+    <span
+      title={`${count} × ${label}`}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '2px 8px 2px 6px',
+        borderRadius: 999,
+        background: `${color}1a`,
+        color,
+        fontSize: 11,
+        fontWeight: 700,
+      }}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />
+      {count}
     </span>
   );
 }
@@ -173,24 +201,32 @@ export function DataTable({
   blogErrors = [],
   gmbPostErrors = [],
   negKeywordReviews = [],
+  gAdsPacing = [],
   featureFilters = {},
   onFeatureToggle,
+  onSubmitGAdsFeedback,
 }: DataTableProps) {
   const [sort, setSort] = useState<SortState>({ column: 'date', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedReply, setExpandedReply] = useState<string | null>(null);
   const [expandedBlogRow, setExpandedBlogRow] = useState<string | null>(null);
+  const [expandedGAdsRow, setExpandedGAdsRow] = useState<string | null>(null);
 
   // Reset page when content type or error mode changes
   useEffect(() => {
     setCurrentPage(1);
     setExpandedBlogRow(null);
+    setExpandedGAdsRow(null);
+    // G Ads Pacing's date field is `runDate`, not the shared `date` default — set it explicitly so newest stays on top.
+    if (contentType === 'g-ads-pacing') {
+      setSort({ column: 'runDate', direction: 'desc' });
+    }
   }, [contentType, isErrorMode]);
 
   // Reset page when data length changes (e.g. feature filters applied that reduce total pages)
   useEffect(() => {
     setCurrentPage(1);
-  }, [blogs.length, gmbPosts.length, replies.length, negKeywordReviews.length, blogErrors.length, gmbPostErrors.length]);
+  }, [blogs.length, gmbPosts.length, replies.length, negKeywordReviews.length, gAdsPacing.length, blogErrors.length, gmbPostErrors.length]);
 
   const handleSort = (column: string) => {
     setSort((prev) => ({
@@ -762,6 +798,167 @@ export function DataTable({
                       </td>
                     </tr>
                   ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={sortedData.length}
+          onPageChange={setCurrentPage}
+        />
+      </div>
+    );
+  }
+
+  // Render G Ads Pacing Table
+  if (contentType === 'g-ads-pacing') {
+    const sortedData = sortData(gAdsPacing, sort.column as keyof GAdsPacingRecord, sort.direction);
+    const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
+    const paginatedData = sortedData.slice(
+      (currentPage - 1) * ITEMS_PER_PAGE,
+      currentPage * ITEMS_PER_PAGE
+    );
+
+    return (
+      <div>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="max-h-[640px] overflow-y-auto overflow-x-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10 bg-gray-50">
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="w-8 pl-3 py-3" />
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                    <button onClick={() => handleSort('runDate')} className="flex items-center gap-1 hover:text-gray-900">
+                      Date <SortIcon column="runDate" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('severity')} className="flex items-center gap-1 hover:text-gray-900">
+                      Severity <SortIcon column="severity" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('practiceName')} className="flex items-center gap-1 hover:text-gray-900">
+                      Practice <SortIcon column="practiceName" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('monthlyBudget')} className="flex items-center gap-1 hover:text-gray-900 ml-auto">
+                      Budget <SortIcon column="monthlyBudget" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('spendMtd')} className="flex items-center gap-1 hover:text-gray-900 ml-auto">
+                      Spent MTD <SortIcon column="spendMtd" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('variancePercent')} className="flex items-center gap-1 hover:text-gray-900 ml-auto">
+                      Variance <SortIcon column="variancePercent" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('approvalStatus')} className="flex items-center gap-1 hover:text-gray-900">
+                      Feedback <SortIcon column="approvalStatus" />
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-500">
+                      No pacing records found for the selected filters.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedData.map((record) => {
+                    const isExpanded = expandedGAdsRow === record.id;
+                    const sev = SEVERITY_STYLES[record.severity];
+                    const dots = actionDotCounts(record.campaigns);
+                    return (
+                      <Fragment key={record.id}>
+                        <tr
+                          onClick={() => setExpandedGAdsRow(isExpanded ? null : record.id)}
+                          className={`border-b border-gray-100 transition-colors cursor-pointer ${isExpanded ? 'bg-slate-50' : 'hover:bg-gray-50'}`}
+                        >
+                          <td className="w-8 pl-3 py-3">
+                            <span
+                              className="inline-flex items-center justify-center text-gray-400 transition-transform duration-150"
+                              style={{
+                                fontSize: 10,
+                                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                display: 'inline-block',
+                              }}
+                            >
+                              ▸
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap font-mono">
+                            {fmtCompactDate(record.runDate)}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`${sev.pill} ${sev.text}`} style={{
+                              display: 'inline-block',
+                              padding: '3px 10px',
+                              borderRadius: 999,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              letterSpacing: '0.04em',
+                            }}>
+                              {sev.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                            {record.practiceName}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 text-right whitespace-nowrap">
+                            {fmtMoney(record.monthlyBudget)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right whitespace-nowrap font-medium">
+                            {fmtMoney(record.spendMtd)}
+                          </td>
+                          <td className={`px-4 py-3 text-sm text-right whitespace-nowrap font-semibold ${variancePercentTone(record.variancePercent)}`}>
+                            {fmtSignedPercent(record.variancePercent)}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            <div className="flex items-center gap-1.5">
+                              {dots.red > 0 && <ActionDot color="#e11d48" count={dots.red} label="Pause" />}
+                              {dots.amber > 0 && <ActionDot color="#d97706" count={dots.amber} label="Approval" />}
+                              {dots.blue > 0 && <ActionDot color="#0ea5e9" count={dots.blue} label="Auto" />}
+                              {dots.red === 0 && dots.amber === 0 && dots.blue === 0 && (
+                                <span className="text-xs text-gray-400">—</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm whitespace-nowrap">
+                            {record.approvalStatus === '' && (
+                              <span className="text-indigo-700 font-medium">Needs review</span>
+                            )}
+                            {record.approvalStatus === 'Approved' && (
+                              <span className="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-2 py-0.5 rounded-full text-xs font-semibold">
+                                Approved
+                              </span>
+                            )}
+                            {record.approvalStatus === 'Rejected' && (
+                              <span className="bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-2 py-0.5 rounded-full text-xs font-semibold">
+                                Rejected
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && onSubmitGAdsFeedback && (
+                          <GAdsPacingDetailPanel record={record} colSpan={9} onSubmit={onSubmitGAdsFeedback} />
+                        )}
+                      </Fragment>
+                    );
+                  })
                 )}
               </tbody>
             </table>

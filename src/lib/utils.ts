@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, NegKeywordReview, DateRange } from '@/types';
+import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, NegKeywordReview, GAdsPacingRecord, DateRange } from '@/types';
 
 // Format date for display
 export function formatDate(dateString: string): string {
@@ -172,6 +172,19 @@ export function filterNegKeywordReviews(
   return reviews.filter((review) => {
     const practiceMatch = practices.length === 0 || practices.includes(review.practiceName);
     const dateMatch = isWithinDateRange(review.dateTime, dateRange);
+    return practiceMatch && dateMatch;
+  });
+}
+
+// Filter G Ads Pacing records by practices and run date
+export function filterGAdsPacing(
+  records: GAdsPacingRecord[],
+  practices: string[],
+  dateRange: DateRange
+): GAdsPacingRecord[] {
+  return records.filter((record) => {
+    const practiceMatch = practices.length === 0 || practices.includes(record.practiceName);
+    const dateMatch = isWithinDateRange(record.runDate, dateRange);
     return practiceMatch && dateMatch;
   });
 }

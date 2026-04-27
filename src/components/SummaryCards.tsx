@@ -30,6 +30,12 @@ const TermsReviewedIcon = () => (
   </svg>
 );
 
+const PacingIcon = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 20h18M6 20V10m6 10V4m6 16v-7" />
+  </svg>
+);
+
 interface SummaryCardsProps {
   data: SummaryData | null;
   isLoading: boolean;
@@ -68,7 +74,7 @@ export function SummaryCards({ data, isLoading, isErrorMode = false, errorSummar
   if (!data) return null;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
       <SummaryCard
         title="Blogs"
         count={data.blogs7d}
@@ -91,6 +97,12 @@ export function SummaryCards({ data, isLoading, isErrorMode = false, errorSummar
         title="Terms Reviewed"
         count={data.negKeywordsTerms7d}
         icon={<TermsReviewedIcon />}
+        subtitle="Last 7 days"
+      />
+      <SummaryCard
+        title="Pacing Reviews Pending"
+        count={data.gAdsPacingPending7d}
+        icon={<PacingIcon />}
         subtitle="Last 7 days"
       />
     </div>
