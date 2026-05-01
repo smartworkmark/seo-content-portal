@@ -13,6 +13,17 @@ Key rules to know before touching related code:
 
 **When you discover a new bug, root cause, or non-obvious fix during any session, add an entry to `reference/lessons-learned.md`.** Include: symptoms, root cause, the fix, and a "rule to remember" so future sessions don't repeat the same diagnosis work.
 
+## Testing Cleanup Rule
+
+After any session that uses Playwright (or any browser/screenshot-based testing), the working directory accumulates throwaway artifacts: `*.png` screenshots in the repo root and `.playwright-mcp/` (page snapshots, console logs). These are not committed and just create clutter.
+
+**Rule: when testing is finished for the current task, always ask the user before deleting screenshot/test artifacts** — never delete them silently or without confirmation, even if you created them yourself in this session.
+
+- Trigger: end of a task that involved Playwright tool calls or wrote `.png`/`.yml`/`.log` files into the repo root or `.playwright-mcp/`.
+- What to ask: list the artifacts and propose deleting them ("Want me to clean up the 7 screenshots and `.playwright-mcp/` from this session?"). Wait for explicit confirmation.
+- Scope: only delete files that *this* session generated. Don't touch artifacts you didn't create — they may belong to user-driven testing.
+- Never use `rm -rf` on broader patterns (e.g. `rm -rf *.png`) without listing exactly what will be removed first, so the user can verify the scope.
+
 ## Project Overview
 
 This is a Next.js-based content portal for managing SEO content (blogs, GMB posts, and review replies) sourced from Google Sheets. The application uses TypeScript throughout and follows a modern React pattern with Server Components and client-side interactivity.
