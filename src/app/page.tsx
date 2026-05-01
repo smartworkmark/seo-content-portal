@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview } from '@/types';
+import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview, Severity } from '@/types';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
 import { useSavedFilters } from '@/hooks/useSavedFilters';
@@ -40,6 +40,7 @@ export default function Dashboard() {
   const [selectedPractices, setSelectedPractices] = useState<string[]>([]);
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange>('7d');
   const [featureFilters, setFeatureFilters] = useState<FeatureFilters>({});
+  const [selectedSeverities, setSelectedSeverities] = useState<Severity[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [showErrors, setShowErrors] = useState(false);
@@ -115,7 +116,7 @@ export default function Dashboard() {
         { key: 'termsReviewed', label: 'Terms Reviewed' },
       ]);
     } else if (activeTab === 'g-ads-pacing') {
-      exportToCSV(filteredGAdsPacing, 'g-ads-pacing', [
+      exportToCSV(severityFilteredGAdsPacing, 'g-ads-pacing', [
         { key: 'runDate', label: 'Run Date' },
         { key: 'practiceName', label: 'Practice' },
         { key: 'googleAdsId', label: 'Google Ads ID' },
@@ -149,6 +150,12 @@ export default function Dashboard() {
         )
       );
 
+  // Severity filter — applied as a final pass on top of practice+date filtered pacing records.
+  // Empty selection = show all severities.
+  const severityFilteredGAdsPacing = selectedSeverities.length === 0
+    ? filteredGAdsPacing
+    : filteredGAdsPacing.filter((r) => selectedSeverities.includes(r.severity));
+
   // Cycle: off → include → exclude → off
   const handleFeatureToggle = (feature: string) => {
     setFeatureFilters((prev) => {
@@ -170,6 +177,7 @@ export default function Dashboard() {
     setSelectedPractices([]);
     setSelectedDateRange(mappedRange);
     if (tab !== 'blogs') setFeatureFilters({});
+    if (tab !== 'g-ads-pacing') setSelectedSeverities([]);
   };
 
   // Apply a saved filter
@@ -306,6 +314,8 @@ export default function Dashboard() {
               onDeleteFilter={deleteFilter}
               featureFilters={featureFilters}
               onFeatureToggle={handleFeatureToggle}
+              selectedSeverities={selectedSeverities}
+              onSeveritiesChange={setSelectedSeverities}
             />
           </div>
 
@@ -342,7 +352,7 @@ export default function Dashboard() {
             gmbPosts={filteredGmbPosts}
             replies={filteredReplies}
             negKeywordReviews={filteredNegKeywords}
-            gAdsPacing={filteredGAdsPacing}
+            gAdsPacing={severityFilteredGAdsPacing}
             isLoading={isLoading}
             isErrorMode={showErrors}
             blogErrors={filteredBlogErrors}

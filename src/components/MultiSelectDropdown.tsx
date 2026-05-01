@@ -4,12 +4,15 @@ import { useState, useRef, useEffect } from 'react';
 
 interface MultiSelectDropdownProps {
   label: string;
+  /** Optional plural form. Defaults to `${label}s` (works for "Practice"/"Account" but not "Severity"). */
+  pluralLabel?: string;
   options: string[];
   selected: string[];
   onChange: (selected: string[]) => void;
 }
 
-export function MultiSelectDropdown({ label, options, selected, onChange }: MultiSelectDropdownProps) {
+export function MultiSelectDropdown({ label, pluralLabel, options, selected, onChange }: MultiSelectDropdownProps) {
+  const plural = pluralLabel ?? `${label}s`;
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -82,7 +85,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Mult
   // Determine display text
   const getDisplayText = () => {
     if (selected.length === 0) {
-      return `All ${label}s`;
+      return `All ${plural}`;
     }
     if (selected.length === 1) {
       return selected[0];
@@ -150,7 +153,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Mult
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={`Search ${label.toLowerCase()}s...`}
+              placeholder={`Search ${plural.toLowerCase()}...`}
               className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600"
             />
           </div>
@@ -164,7 +167,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Mult
                 isAllSelected ? 'text-indigo-600' : 'text-gray-600 hover:text-indigo-600'
               }`}
             >
-              All {label}s
+              All {plural}
             </button>
             {selected.length > 0 && (
               <button
@@ -203,7 +206,7 @@ export function MultiSelectDropdown({ label, options, selected, onChange }: Mult
               })
             ) : (
               <div className="px-3 py-2 text-sm text-gray-500 text-center">
-                No {label.toLowerCase()}s found
+                No {plural.toLowerCase()} found
               </div>
             )}
           </div>

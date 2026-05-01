@@ -196,16 +196,30 @@ The application expects three sheets with specific column structures:
 - No error tracking (unlike blogs/GMB posts)
 
 **G Ads Pacing:**
-- 29 columns; the source rows are **campaign-level** (one row per campaign per run date). Account-level fields repeat across all campaign rows of the same `(Run Date, google_ads_id)` account.
-- Columns: Run Date, run_id, practice_name, google_ads_id, HS ID, campaign_id, campaign_name, account_monthly_budget, account_actual_spend_mtd, campaign_actual_spend_mtd, account_expected_spend_mtd, account_variance_percent, account_current_daily_budget, campaign_current_daily_budget, account_proposed_daily_budget, campaign_proposed_daily_budget, spend_share, yesterday_account_proposed, account_proposed_multiple, campaign_proposed_multiple, status, recommendation_type, applied, correction_percent, damped_from, severity, approval_status, reviewed_by, notes
+- 40 columns; the source rows are **campaign-level** (one row per campaign per run date). Account-level fields repeat across all campaign rows of the same `(Run Date, google_ads_id)` account.
+- Columns 1–29 (legacy): Run Date, run_id, practice_name, google_ads_id, HS ID, campaign_id, campaign_name, account_monthly_budget, account_actual_spend_mtd, campaign_actual_spend_mtd, account_expected_spend_mtd, account_variance_percent, account_current_daily_budget, campaign_current_daily_budget, account_proposed_daily_budget, campaign_proposed_daily_budget, spend_share, yesterday_account_proposed, account_proposed_multiple, campaign_proposed_multiple, status, recommendation_type, applied, correction_percent, damped_from, severity, approval_status, reviewed_by, notes
+- Columns 30–40 (V3 — explanatory signals): classification, search_budget_lost_is, yesterday_utilization, utilization_days, chronic_demand_limited, skip_reason, account_on_track, all_demand_limited, any_budget_limited, conflicts_with_pacing, seven_day_avg_utilization
 - Required: Run Date, google_ads_id (used as group key)
-- The parser groups rows into one `GAdsPacingRecord` per `(runDate, googleAdsId)` with a `campaigns[]` array. Each campaign carries its own `recommendation_type` and per-campaign budget/spend.
-- Severity values: `OK`, `Auto`, `Alert`, `Underpace`, `Critical`, `Investigate` (read directly from `severity` column; empty = `OK`).
+- The parser groups rows into one `GAdsPacingRecord` per `(runDate, googleAdsId)` with a `campaigns[]` array. Each campaign carries its own `recommendation_type`, `classification`, `searchBudgetLostIs`, `sevenDayAvgUtilization`, `utilizationDays`, `chronicDemandLimited`, `skipReason`, `conflictsWithPacing`. Account-level booleans (`accountOnTrack`, `allDemandLimited`, `anyBudgetLimited`) live on the record.
+- Severity values: `OK`, `Auto`, `Alert`, `Underpace`, `Critical`, `Investigate` (read directly from `severity` column; empty = `OK`; case-insensitive match).
 - Recommendation types per campaign (6 enums): `PAUSE_CAMPAIGN`, `BUDGET_DECREASE_APPROVAL`, `BUDGET_INCREASE_APPROVAL`, `BUDGET_DECREASE`, `BUDGET_INCREASE`, `NO_CHANGE`.
-- Action dot color coding: red = pause; amber = approval-pending; blue = auto-applied; `NO_CHANGE` not shown.
-- Fetched with range `A:AC` (extends past column Z); `fetchSheet()` accepts an optional range parameter for sheets wider than 26 columns.
+- Classification (per campaign): `BUDGET_LIMITED` (sky/blue badge), `DEMAND_LIMITED` (slate badge), or null (no badge — month-start grace).
+- Skip reason (per campaign, 8 enums): `ACCOUNT_ON_TRACK`, `DEMAND_SIDE_ISSUE`, `DEMAND_LIMITED_NO_CHANGE`, `BUDGET_LIMITED_BUT_CHANGE_TOO_SMALL`, `CHRONIC_DEMAND_LIMITED_DONOR`, `CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING`, `NO_MEANINGFUL_CHANGE`, `MONTH_START_GRACE`. Friendly labels in `SKIP_REASON_LABELS` (`src/lib/g-ads-pacing.ts`); shown only as italic subtext under `NO_CHANGE` recommendations.
+- Action dot color coding: red = pause; amber = approval-pending; blue = auto-applied; `NO_CHANGE` not shown. On-track accounts replace the dots with a green "On track" pill.
+- Fetched with range `A:AN` (40 columns); `fetchSheet()` accepts an optional range parameter for sheets wider than 26 columns.
 - Sheet may not exist in older spreadsheets — fetch is wrapped in `.catch(() => [])` for graceful empty fallback.
 - No URL validation, no error tracking.
+
+**G Ads Pacing detail panel display rules** (driven by helpers in `src/lib/g-ads-pacing.ts`):
+- **Banners** (priority order, only one at a time when multiple match): grace banner (every campaign has `skipReason === 'MONTH_START_GRACE'`); INVESTIGATE banner (`severity === 'Investigate' && allDemandLimited`); generic INVESTIGATE banner (`severity === 'Investigate' && !allDemandLimited`).
+- **Mixed-account chip** "X of N campaigns budget-limited" — shown in panel header when both BUDGET_LIMITED and DEMAND_LIMITED campaigns exist on the same account.
+- **Classification badge** — replaces with "chronic" (orange) variant when `chronicDemandLimited && classification === 'DEMAND_LIMITED'`. Hidden for null classification.
+- **IS-lost text** — "X% IS lost" subtext under classification badge, only on BUDGET_LIMITED campaigns with `searchBudgetLostIs >= 1`.
+- **7-day util bar** — shown when `sevenDayAvgUtilization` is non-null AND `skipReason !== 'MONTH_START_GRACE'`. Bar fill = `min(pct, 100)`. Color: <50% orange, 50–94% green, ≥95% blue.
+- **Conflict icon ⚠** — only when `conflictsWithPacing && recommendationType !== 'NO_CHANGE' && skipReason === ''`.
+- **Skip reason italic subtext** — only on `NO_CHANGE` rows with a non-empty `skipReason`.
+- **Feedback form** suppressed when grace banner shows OR `accountOnTrack === true`. The header chip in the table column ("Approved"/"Rejected"/"Needs review") still renders.
+- **On-track row dimming** — `opacity-60` on the table row when `accountOnTrack === true && !isExpanded`.
 
 ## Critical Implementation Details
 
@@ -224,9 +238,12 @@ When modifying URL handling, understand the validation flow:
 ### Filter Application Order
 1. Parse data from sheets → apply server filters (required fields + valid URLs)
 2. Calculate summary stats from filtered data
-3. Client applies user-selected filters (practice/account, date range) via `useContentData` hook → `filteredBlogs`
+3. Client applies user-selected filters (practice/account, date range) via `useContentData` hook → `filteredBlogs` / `filteredGAdsPacing` / etc.
 4. Client re-validates URLs as additional safety
-5. `page.tsx` applies feature filter on top of `filteredBlogs` → `featureFilteredBlogs` (passed to `DataTable`)
+5. `page.tsx` applies tab-specific final-pass filters:
+   - **Blogs**: feature filter → `featureFilteredBlogs`
+   - **G Ads Pacing**: severity filter → `severityFilteredGAdsPacing`
+6. The most-derived variable is what flows to `DataTable` AND to CSV export (don't skip the final pass on either path).
 
 ### Date Handling
 - Blogs/GMB Posts combine separate Date and Time columns into single datetime string
@@ -271,9 +288,17 @@ When modifying URL handling, understand the validation flow:
 28. **G Ads Pacing source rows are campaign-level; the table groups them** - The parser produces one `GAdsPacingRecord` per `(runDate, googleAdsId)` with embedded `campaigns[]`. Account-level fields are taken from the first row in the group; if the first row has empty severity/approval/notes, later rows fill them in. Don't iterate raw rows in components — use the grouped record.
 29. **G Ads Pacing feedback writes back via Make.com webhook** - On submit, the panel POSTs `{ run_date, google_ads_id, approval_status, reviewed_by, notes }` (exactly 5 snake_case keys) to `NEXT_PUBLIC_MAKE_FEEDBACK_WEBHOOK_URL`. The Make.com scenario is responsible for updating every campaign row of that account in the sheet. The portal optimistically updates local hook state on success so the row reflects the new status without a refetch.
 30. **G Ads Pacing has no error mode and no URL validation** - Like Replies and Neg. Keywords, no error tracking. The tab is hidden in error mode (only Blogs and GMB posts show errors).
-31. **`fetchSheet()` defaults to range `A:Z` but accepts a wider range** - G Ads Pacing has 29 columns and is fetched with `'A:AC'`. Other sheets (≤26 columns) keep the default. Pass an explicit range when adding sheets that extend past column Z.
+31. **`fetchSheet()` defaults to range `A:Z` but accepts a wider range** - G Ads Pacing has 40 columns and is fetched with `'A:AN'`. Other sheets (≤26 columns) keep the default. Pass an explicit range when adding sheets that extend past column Z.
 32. **G Ads Pacing default sort is `runDate desc`** - Set in the tab-change effect in `DataTable.tsx`. The shared default `{ column: 'date', direction: 'desc' }` doesn't apply to this tab because the field is `runDate`, not `date`. Without this override, sorting silently degrades to source order.
 33. **G Ads Pacing date column uses compact MM/DD format** - Via `fmtCompactDate()` in `src/lib/g-ads-pacing.ts`. Year is omitted because pacing is reviewed daily and the visible window is only 1d/3d/7d. If the tab ever spans years, revisit this format.
+34. **G Ads Pacing booleans only treat literal "TRUE" as true** - The parser's `toBool()` is case-insensitive but compares against `'true'` only. Empty cells, "FALSE", and unexpected strings all become `false`. This applies to `chronic_demand_limited`, `account_on_track`, `all_demand_limited`, `any_budget_limited`, `conflicts_with_pacing`.
+35. **G Ads Pacing `searchBudgetLostIs` and `sevenDayAvgUtilization` use `null` for missing data** - Distinguished from `0` via `toNumOrNull()`. Display rules check for `null` to hide the field entirely. Don't substitute `0` for empty cells — it would falsely show "0% IS lost" or a 0% utilization bar.
+36. **G Ads Pacing classification badge "chronic" replaces "demand-limited"** - Don't render two badges. When `chronicDemandLimited && classification === 'DEMAND_LIMITED'`, swap in the orange "chronic" pill. Helper `classificationBadge(c)` returns the right one.
+37. **G Ads Pacing INVESTIGATE banner only shows when `allDemandLimited` is true** - For `severity === 'Investigate' && !allDemandLimited`, a generic "No actionable changes identified" banner shows instead. The two paths are mutually exclusive — use `shouldShowInvestigateBanner()` and `shouldShowGenericInvestigateBanner()`.
+38. **G Ads Pacing feedback form is hidden on on-track and grace accounts** - Per V3 display rules, there's nothing to approve in those states. The status chip in the table column still renders (so existing approvals stay visible), but the panel form is suppressed.
+39. **G Ads Pacing severity filter is tab-scoped and additive** - `selectedSeverities: Severity[]` state lives in `page.tsx` and is reset when switching away from `g-ads-pacing` (alongside the `featureFilters` reset). Applied as a final client-side pass after `filteredGAdsPacing` from the hook, producing `severityFilteredGAdsPacing` — which feeds BOTH the `DataTable` and the CSV export. Empty array = show all severities. Filter UI (`MultiSelectDropdown` in `Filters.tsx`) is gated on `contentType === 'g-ads-pacing'`.
+40. **Conflict warning ⚠ tooltip is rendered via React portal** - `ConflictIcon` in `GAdsPacingDetailPanel.tsx` uses `createPortal(..., document.body)` because the campaign breakdown table sits inside three nested `overflow` ancestors (the table's `overflow-x: auto` scroller, the data-table's `max-h-[640px] overflow-y-auto`, and the rounded outer `overflow-hidden` wrapper). A normal absolute-positioned tooltip would be clipped by any of them. Position is captured on `mouseenter` via `getBoundingClientRect()` and applied as `position: fixed`. Don't refactor it back to a CSS-only `group-hover` tooltip — it will appear to work in a snapshot/DOM check but render invisibly.
+41. **`MultiSelectDropdown` accepts an optional `pluralLabel` prop** - Defaults to `${label}s` (correct for "Practice" → "Practices" and "Account" → "Accounts"). For irregular plurals like "Severity" → "Severities", pass `pluralLabel="Severities"` explicitly, otherwise the placeholder reads "All Severitys". Affects the trigger placeholder, search placeholder, "All …" quick action, and empty-state text.
 
 ## Environment Variables
 

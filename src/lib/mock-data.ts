@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, RecommendationType, Severity } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, RecommendationType, Severity, Classification, SkipReason } from '@/types';
 
 // Sample practice names
 const practices = [
@@ -268,17 +268,143 @@ function calculateSummary(
   };
 }
 
-// Generate g-ads pacing mock records
+// Generate g-ads pacing mock records.
+// Distributes scenarios so dev/no-API mode exercises every UI path:
+//   on-track, budget-limited, all-demand-limited, chronic, mixed, month-start grace, conflict.
+type Scenario =
+  | 'on-track'
+  | 'budget-limited'
+  | 'all-demand'
+  | 'chronic'
+  | 'mixed'
+  | 'grace'
+  | 'conflict';
+
+function pickScenario(i: number): Scenario {
+  // Deterministic distribution roughly: 30% on-track, 25% budget-limited, 20% all-demand,
+  // 10% chronic, 5% mixed, 5% grace, 5% conflict.
+  const m = i % 20;
+  if (m < 6) return 'on-track';
+  if (m < 11) return 'budget-limited';
+  if (m < 15) return 'all-demand';
+  if (m < 17) return 'chronic';
+  if (m === 17) return 'mixed';
+  if (m === 18) return 'grace';
+  return 'conflict';
+}
+
+function buildCampaign(
+  i: number,
+  j: number,
+  base: number,
+  spendShare: number,
+  scenario: Scenario,
+): GAdsPacingCampaign {
+  const campaignNames = ['General Dentistry', 'Implants', 'Emergency', 'Cosmetic'];
+  const currentDaily = Math.round(base / 30);
+  const spendMtd = Math.round(base * spendShare);
+  let recommendationType: RecommendationType | '' = 'NO_CHANGE';
+  let classification: Classification = null;
+  let searchBudgetLostIs: number | null = 0;
+  let yesterdayUtilization: number | null = null;
+  let sevenDayAvgUtilization: number | null = null;
+  let utilizationDays = 0;
+  let chronicDemandLimited = false;
+  let skipReason: SkipReason = '';
+  let conflictsWithPacing = false;
+  let proposedDaily = currentDaily;
+
+  switch (scenario) {
+    case 'on-track':
+      classification = j % 2 === 0 ? 'BUDGET_LIMITED' : 'DEMAND_LIMITED';
+      sevenDayAvgUtilization = 60 + ((i + j) % 30);
+      yesterdayUtilization = sevenDayAvgUtilization;
+      utilizationDays = 6;
+      recommendationType = 'NO_CHANGE';
+      skipReason = 'ACCOUNT_ON_TRACK';
+      searchBudgetLostIs = classification === 'BUDGET_LIMITED' ? 5 + ((i + j) % 10) : 0;
+      break;
+    case 'budget-limited':
+      classification = 'BUDGET_LIMITED';
+      sevenDayAvgUtilization = 95 + ((i + j) % 60);
+      yesterdayUtilization = sevenDayAvgUtilization;
+      utilizationDays = 7;
+      searchBudgetLostIs = 15 + ((i + j * 7) % 50);
+      recommendationType = j === 0 ? 'BUDGET_INCREASE_APPROVAL' : 'BUDGET_INCREASE';
+      proposedDaily = Math.round(currentDaily * 1.2);
+      break;
+    case 'all-demand':
+      classification = 'DEMAND_LIMITED';
+      sevenDayAvgUtilization = 15 + ((i + j) % 35);
+      yesterdayUtilization = sevenDayAvgUtilization;
+      utilizationDays = 4;
+      recommendationType = 'NO_CHANGE';
+      skipReason = 'DEMAND_SIDE_ISSUE';
+      break;
+    case 'chronic':
+      classification = 'DEMAND_LIMITED';
+      chronicDemandLimited = j === 0; // one campaign chronic
+      sevenDayAvgUtilization = 20 + ((i + j) % 25);
+      yesterdayUtilization = sevenDayAvgUtilization;
+      utilizationDays = 7;
+      recommendationType = 'NO_CHANGE';
+      skipReason = chronicDemandLimited ? 'CHRONIC_DEMAND_LIMITED_DONOR' : 'DEMAND_LIMITED_NO_CHANGE';
+      break;
+    case 'mixed':
+      // Half the campaigns budget-limited, half demand-limited.
+      classification = j % 2 === 0 ? 'BUDGET_LIMITED' : 'DEMAND_LIMITED';
+      sevenDayAvgUtilization = classification === 'BUDGET_LIMITED' ? 110 + (j * 5) : 35 + (j * 4);
+      yesterdayUtilization = sevenDayAvgUtilization;
+      utilizationDays = 6;
+      if (classification === 'BUDGET_LIMITED') {
+        recommendationType = 'BUDGET_INCREASE';
+        proposedDaily = Math.round(currentDaily * 1.15);
+        searchBudgetLostIs = 25 + (j * 3);
+      } else {
+        recommendationType = 'NO_CHANGE';
+        skipReason = 'DEMAND_LIMITED_NO_CHANGE';
+      }
+      break;
+    case 'grace':
+      classification = null;
+      sevenDayAvgUtilization = null;
+      yesterdayUtilization = null;
+      utilizationDays = 0;
+      recommendationType = 'NO_CHANGE';
+      skipReason = 'MONTH_START_GRACE';
+      break;
+    case 'conflict':
+      classification = 'BUDGET_LIMITED';
+      sevenDayAvgUtilization = 130 + (j * 10);
+      yesterdayUtilization = sevenDayAvgUtilization;
+      utilizationDays = 7;
+      // Account is overpacing but this campaign wants more budget — conflict.
+      recommendationType = j === 0 ? 'BUDGET_INCREASE_APPROVAL' : 'BUDGET_DECREASE_APPROVAL';
+      conflictsWithPacing = j === 0;
+      proposedDaily = Math.round(currentDaily * (j === 0 ? 1.25 : 0.7));
+      searchBudgetLostIs = 30 + (j * 5);
+      break;
+  }
+
+  return {
+    campaignId: `${20000000 + i * 10 + j}`,
+    campaignName: campaignNames[j % campaignNames.length],
+    spendMtd,
+    currentDaily,
+    proposedDaily,
+    recommendationType,
+    classification,
+    searchBudgetLostIs,
+    yesterdayUtilization,
+    sevenDayAvgUtilization,
+    utilizationDays,
+    chronicDemandLimited,
+    skipReason,
+    conflictsWithPacing,
+  };
+}
+
 function generateGAdsPacing(count: number): GAdsPacingRecord[] {
-  const severities: Severity[] = ['OK', 'Auto', 'Alert', 'Underpace', 'Critical', 'Investigate'];
-  const recs: RecommendationType[] = [
-    'PAUSE_CAMPAIGN',
-    'BUDGET_DECREASE_APPROVAL',
-    'BUDGET_INCREASE_APPROVAL',
-    'BUDGET_DECREASE',
-    'BUDGET_INCREASE',
-    'NO_CHANGE',
-  ];
   const today = new Date();
   return Array.from({ length: count }, (_, i) => {
     const d = new Date(today);
@@ -287,9 +413,59 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
     const practice = practices[i % practices.length];
     const googleAdsId = `${1000000000 + i}`;
     const monthlyBudget = 2000 + (i % 5) * 500;
-    const variance = -50 + ((i * 17) % 100);
+    const scenario = pickScenario(i);
+
+    let severity: Severity = 'OK';
+    let variance = 0;
+    let accountOnTrack = false;
+    let allDemandLimited = false;
+    let anyBudgetLimited = false;
+
+    switch (scenario) {
+      case 'on-track':
+        severity = 'OK';
+        variance = -3 + ((i % 5) - 2);
+        accountOnTrack = true;
+        anyBudgetLimited = true; // mixed but on-track
+        break;
+      case 'budget-limited':
+        severity = i % 3 === 0 ? 'Underpace' : 'Alert';
+        variance = -25 + ((i * 5) % 15);
+        anyBudgetLimited = true;
+        break;
+      case 'all-demand':
+        severity = 'Investigate';
+        variance = -45 + ((i * 3) % 20);
+        allDemandLimited = true;
+        break;
+      case 'chronic':
+        severity = 'Investigate';
+        variance = -40 + ((i * 4) % 15);
+        allDemandLimited = true;
+        break;
+      case 'mixed':
+        severity = 'Alert';
+        variance = -10;
+        anyBudgetLimited = true;
+        break;
+      case 'grace':
+        severity = 'OK';
+        variance = 0;
+        break;
+      case 'conflict':
+        severity = 'Critical';
+        variance = 22 + (i % 10);
+        anyBudgetLimited = true;
+        break;
+    }
+
     const expected = monthlyBudget * 0.7;
     const spend = Math.round(expected * (1 + variance / 100));
+    const numCampaigns = scenario === 'mixed' ? 4 : 2 + (i % 3);
+    const campaigns: GAdsPacingCampaign[] = Array.from({ length: numCampaigns }, (_, j) =>
+      buildCampaign(i, j, monthlyBudget, 1 / numCampaigns, scenario),
+    );
+
     return {
       id: `${runDate}|${googleAdsId}`,
       runDate,
@@ -302,19 +478,15 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       expectedSpendMtd: Math.round(expected),
       variancePercent: variance,
       currentDailyBudget: Math.round(monthlyBudget / 30),
-      proposedDailyBudget: Math.round((monthlyBudget / 30) * 0.8),
-      severity: severities[i % severities.length],
-      approvalStatus: i % 4 === 0 ? 'Approved' : '',
-      reviewedBy: i % 4 === 0 ? 'Mark' : '',
+      proposedDailyBudget: Math.round(monthlyBudget / 30),
+      severity,
+      approvalStatus: !accountOnTrack && scenario !== 'grace' && i % 5 === 0 ? 'Approved' : '',
+      reviewedBy: !accountOnTrack && scenario !== 'grace' && i % 5 === 0 ? 'Mark' : '',
       notes: '',
-      campaigns: Array.from({ length: 2 + (i % 3) }, (_, j) => ({
-        campaignId: `${20000000 + i * 10 + j}`,
-        campaignName: ['General Dentistry', 'Implants', 'Emergency', 'Cosmetic'][j % 4],
-        spendMtd: Math.round(spend / (2 + (i % 3))),
-        currentDaily: Math.round(monthlyBudget / 30 / (2 + (i % 3))),
-        proposedDaily: Math.round((monthlyBudget / 30 / (2 + (i % 3))) * 0.7),
-        recommendationType: recs[(i + j) % recs.length],
-      })),
+      accountOnTrack,
+      allDemandLimited,
+      anyBudgetLimited,
+      campaigns,
     };
   });
 }

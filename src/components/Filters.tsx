@@ -1,6 +1,6 @@
 'use client';
 
-import { DateRange, ContentType, SavedFilter, FeatureFilters } from '@/types';
+import { DateRange, ContentType, SavedFilter, FeatureFilters, Severity } from '@/types';
 import { FEATURE_CONFIG } from '@/lib/features';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { SavedFiltersBar } from './SavedFiltersBar';
@@ -22,7 +22,11 @@ interface FiltersProps {
   onDeleteFilter: (id: string) => void;
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
+  selectedSeverities?: Severity[];
+  onSeveritiesChange?: (severities: Severity[]) => void;
 }
+
+const SEVERITY_OPTIONS: Severity[] = ['Critical', 'Investigate', 'Alert', 'Underpace', 'Auto', 'OK'];
 
 export function Filters({
   contentType,
@@ -39,6 +43,8 @@ export function Filters({
   onDeleteFilter,
   featureFilters = {},
   onFeatureToggle,
+  selectedSeverities = [],
+  onSeveritiesChange,
 }: FiltersProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -110,6 +116,20 @@ export function Filters({
               </button>
             ))}
           </div>
+
+          {/* Severity Filter — G Ads Pacing tab only */}
+          {contentType === 'g-ads-pacing' && onSeveritiesChange && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 whitespace-nowrap">Severity:</label>
+              <MultiSelectDropdown
+                label="Severity"
+                pluralLabel="Severities"
+                options={SEVERITY_OPTIONS}
+                selected={selectedSeverities}
+                onChange={(s) => onSeveritiesChange(s as Severity[])}
+              />
+            </div>
+          )}
 
           {/* Feature Filter Pills — blogs tab only */}
           {contentType === 'blogs' && onFeatureToggle && (

@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, Severity, ApprovalStatus, RecommendationType } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, Severity, ApprovalStatus, RecommendationType, Classification, SkipReason } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
 import { isValidUrl } from '@/lib/utils';
 
@@ -249,6 +249,46 @@ function toNum(s: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+// Returns null when the cell is empty/missing — distinguishes "no data" from 0.
+function toNumOrNull(s: string | undefined): number | null {
+  if (s === undefined || s === null) return null;
+  const trimmed = String(s).trim();
+  if (!trimmed) return null;
+  const n = parseFloat(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toBool(s: string | undefined): boolean {
+  if (!s) return false;
+  return String(s).trim().toLowerCase() === 'true';
+}
+
+const VALID_SKIP_REASONS: readonly SkipReason[] = [
+  '',
+  'ACCOUNT_ON_TRACK',
+  'DEMAND_SIDE_ISSUE',
+  'DEMAND_LIMITED_NO_CHANGE',
+  'BUDGET_LIMITED_BUT_CHANGE_TOO_SMALL',
+  'CHRONIC_DEMAND_LIMITED_DONOR',
+  'CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING',
+  'NO_MEANINGFUL_CHANGE',
+  'MONTH_START_GRACE',
+] as const;
+
+function normalizeClassification(raw: string | undefined): Classification {
+  const trimmed = (raw || '').trim().toUpperCase();
+  if (trimmed === 'BUDGET_LIMITED') return 'BUDGET_LIMITED';
+  if (trimmed === 'DEMAND_LIMITED') return 'DEMAND_LIMITED';
+  return null;
+}
+
+function normalizeSkipReason(raw: string | undefined): SkipReason {
+  const trimmed = (raw || '').trim().toUpperCase();
+  if (!trimmed) return '';
+  const found = VALID_SKIP_REASONS.find((r) => r === trimmed);
+  return found ?? '';
+}
+
 function normalizeSeverity(raw: string): Severity {
   const trimmed = (raw || '').trim();
   if (!trimmed) return 'OK';
@@ -298,6 +338,20 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
   const approvalIdx = idx('approval_status');
   const reviewedByIdx = idx('reviewed_by');
   const notesIdx = idx('notes');
+  // V3 columns
+  const classificationIdx = idx('classification');
+  const isLostIdx = idx('search_budget_lost_is');
+  const yesterdayUtilIdx = idx('yesterday_utilization');
+  const utilDaysIdx = idx('utilization_days');
+  const chronicIdx = idx('chronic_demand_limited');
+  const skipReasonIdx = idx('skip_reason');
+  const accountOnTrackIdx = idx('account_on_track');
+  const allDemandLimitedIdx = idx('all_demand_limited');
+  const anyBudgetLimitedIdx = idx('any_budget_limited');
+  const conflictsIdx = idx('conflicts_with_pacing');
+  const sevenDayUtilIdx = idx('seven_day_avg_utilization');
+
+  const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
 
   const groups = new Map<string, GAdsPacingRecord>();
 
@@ -314,6 +368,14 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       currentDaily: toNum(row[campaignCurrentDailyIdx]),
       proposedDaily: toNum(row[campaignProposedDailyIdx]),
       recommendationType: normalizeRecommendation(row[recommendationIdx] || ''),
+      classification: normalizeClassification(cell(row, classificationIdx)),
+      searchBudgetLostIs: toNumOrNull(cell(row, isLostIdx)),
+      yesterdayUtilization: toNumOrNull(cell(row, yesterdayUtilIdx)),
+      sevenDayAvgUtilization: toNumOrNull(cell(row, sevenDayUtilIdx)),
+      utilizationDays: Math.round(toNum(cell(row, utilDaysIdx))),
+      chronicDemandLimited: toBool(cell(row, chronicIdx)),
+      skipReason: normalizeSkipReason(cell(row, skipReasonIdx)),
+      conflictsWithPacing: toBool(cell(row, conflictsIdx)),
     };
 
     const existing = groups.get(key);
@@ -333,6 +395,11 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       if (!existing.notes && notesIdx >= 0) {
         existing.notes = row[notesIdx] || '';
       }
+      // Account-level booleans: any TRUE wins (they should be uniform across campaign rows
+      // of an account, but defend against partial fills the same way severity/notes do).
+      if (!existing.accountOnTrack) existing.accountOnTrack = toBool(cell(row, accountOnTrackIdx));
+      if (!existing.allDemandLimited) existing.allDemandLimited = toBool(cell(row, allDemandLimitedIdx));
+      if (!existing.anyBudgetLimited) existing.anyBudgetLimited = toBool(cell(row, anyBudgetLimitedIdx));
     } else {
       groups.set(key, {
         id: key,
@@ -351,6 +418,9 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
         approvalStatus: normalizeApprovalStatus(row[approvalIdx] || ''),
         reviewedBy: reviewedByIdx >= 0 ? (row[reviewedByIdx] || '') : '',
         notes: notesIdx >= 0 ? (row[notesIdx] || '') : '',
+        accountOnTrack: toBool(cell(row, accountOnTrackIdx)),
+        allDemandLimited: toBool(cell(row, allDemandLimitedIdx)),
+        anyBudgetLimited: toBool(cell(row, anyBudgetLimitedIdx)),
         campaigns: [campaign],
       });
     }
@@ -429,7 +499,7 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       fetchSheet('GMB Posts'),
       fetchSheet('GMB Replies'),
       fetchSheet('Negative Keywords').catch(() => [] as string[][]),
-      fetchSheet('G Ads Pacing', 'A:AC').catch(() => [] as string[][]),
+      fetchSheet('G Ads Pacing', 'A:AN').catch(() => [] as string[][]),
     ]);
 
     const { valid: blogs, errors: blogErrors } = parseBlogs(blogsData);

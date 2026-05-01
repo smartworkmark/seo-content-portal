@@ -174,6 +174,56 @@ Changed the header match in `parseBlogs()` from `'review content'` to `'reviews 
 
 ---
 
+## 2026-05-01 — Custom Tooltip Invisible Despite Correct Positioning
+
+### Symptoms
+Built a CSS-only hover tooltip on the conflict warning icon (⚠) inside the G Ads Pacing detail panel. DOM inspection showed:
+- `getBoundingClientRect()` reported sensible viewport coords (top: 319, left: 336, width: 230, height: 43.5).
+- Computed `opacity` was `1` on hover.
+- `getComputedStyle()` showed no `display: none` or `visibility: hidden`.
+
+But the tooltip never appeared visually. Screenshots taken mid-hover showed nothing.
+
+### Root Cause
+The campaign breakdown table sits inside **three nested CSS overflow ancestors**:
+
+1. `<div style={{ overflowX: 'auto' }}>` — the table's horizontal scroller.
+2. `<div className="max-h-[640px] overflow-y-auto overflow-x-auto">` — the data-table's vertical scroller.
+3. `<div className="border border-gray-200 rounded-lg overflow-hidden">` — the rounded outer wrapper.
+
+Any non-`visible` overflow on an ancestor creates a CSS clipping container. An absolute-positioned descendant — even one with `bottom-full` correctly placing it above its trigger — gets clipped at the ancestor's bounding box. With three layers of clipping, the tooltip rendered "into the void."
+
+The tooltip's bounding rect was reported correctly because layout still computed it; only the paint was clipped.
+
+### Fix
+Render the tooltip via `createPortal(..., document.body)` so it escapes all three overflow ancestors. Capture the trigger's screen position on `mouseenter` and apply `position: fixed` with `top`/`left` from `getBoundingClientRect()`. State is held in the `ConflictIcon` component:
+
+```tsx
+const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+// onMouseEnter: setPos({ left: r.left + r.width / 2, top: r.top - 6 });
+// onMouseLeave: setPos(null);
+{pos && createPortal(<div style={{ position: 'fixed', left: pos.left, top: pos.top, ... }}>...</div>, document.body)}
+```
+
+Lives in `src/components/GAdsPacingDetailPanel.tsx`.
+
+### Rule to Remember
+**If a tooltip/popover lives inside any `overflow: hidden | auto | scroll` container — directly or transitively — render it through a portal.** Don't trust `getBoundingClientRect()` and `opacity: 1` as proof of visibility; layout reports those even when paint is clipped.
+
+Quick triage when a CSS-positioned overlay appears invisible:
+```js
+let el = element.parentElement;
+while (el) {
+  const cs = getComputedStyle(el);
+  if (cs.overflow !== 'visible') console.log(el, cs.overflow);
+  el = el.parentElement;
+}
+```
+
+If any ancestor has non-`visible` overflow, switch to a portal.
+
+---
+
 ## General Debugging Tips
 
 - **Check server logs first** — `GET /` repeating in the Next.js log is a sign of a reload loop, not normal behaviour.

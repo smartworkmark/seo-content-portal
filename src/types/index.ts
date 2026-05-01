@@ -63,6 +63,19 @@ export type RecommendationType =
 
 export type ApprovalStatus = '' | 'Approved' | 'Rejected';
 
+export type Classification = 'BUDGET_LIMITED' | 'DEMAND_LIMITED' | null;
+
+export type SkipReason =
+  | ''
+  | 'ACCOUNT_ON_TRACK'
+  | 'DEMAND_SIDE_ISSUE'
+  | 'DEMAND_LIMITED_NO_CHANGE'
+  | 'BUDGET_LIMITED_BUT_CHANGE_TOO_SMALL'
+  | 'CHRONIC_DEMAND_LIMITED_DONOR'
+  | 'CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING'
+  | 'NO_MEANINGFUL_CHANGE'
+  | 'MONTH_START_GRACE';
+
 export interface GAdsPacingCampaign {
   campaignId: string;
   campaignName: string;
@@ -70,6 +83,14 @@ export interface GAdsPacingCampaign {
   currentDaily: number;
   proposedDaily: number;
   recommendationType: RecommendationType | '';
+  classification: Classification;
+  searchBudgetLostIs: number | null;
+  yesterdayUtilization: number | null;
+  sevenDayAvgUtilization: number | null;
+  utilizationDays: number;
+  chronicDemandLimited: boolean;
+  skipReason: SkipReason;
+  conflictsWithPacing: boolean;
 }
 
 export interface GAdsPacingRecord {
@@ -89,6 +110,9 @@ export interface GAdsPacingRecord {
   approvalStatus: ApprovalStatus;
   reviewedBy: string;
   notes: string;
+  accountOnTrack: boolean;
+  allDemandLimited: boolean;
+  anyBudgetLimited: boolean;
   campaigns: GAdsPacingCampaign[];
 }
 
