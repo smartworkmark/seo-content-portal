@@ -229,6 +229,7 @@ The application expects three sheets with specific column structures:
 - **7-day util bar** — shown when `sevenDayAvgUtilization` is non-null AND `skipReason !== 'MONTH_START_GRACE'`. Bar fill = `min(pct, 100)`. Color: <50% orange, 50–94% green, ≥95% blue.
 - **Conflict icon ⚠** — only when `conflictsWithPacing && recommendationType !== 'NO_CHANGE' && skipReason === ''`.
 - **Skip reason italic subtext** — only on `NO_CHANGE` rows with a non-empty `skipReason`.
+- **Proposed /day and Change cells** — replaced with a muted `—` on `NO_CHANGE` campaigns. The pre-decision proposed value would otherwise read as a contradicting recommendation; the "No Change" pill plus skip-reason subtext is the source of truth.
 - **Feedback form** suppressed when grace banner shows OR `accountOnTrack === true`. The header chip in the table column ("Approved"/"Rejected"/"Needs review") still renders.
 - **On-track row dimming** — `opacity-60` on the table row when `accountOnTrack === true && !isExpanded`.
 

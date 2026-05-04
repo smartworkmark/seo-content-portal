@@ -219,6 +219,7 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
                 </thead>
                 <tbody>
                   {record.campaigns.map((c, i) => {
+                    const isNoChange = c.recommendationType === 'NO_CHANGE';
                     const change = c.currentDaily > 0
                       ? ((c.proposedDaily - c.currentDaily) / c.currentDaily) * 100
                       : c.proposedDaily > 0
@@ -276,13 +277,21 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
                           {fmtMoney(c.currentDaily)}
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#334155' }}>
-                          {fmtMoney(c.proposedDaily)}
+                          {isNoChange ? (
+                            <span className="text-xs text-slate-400">—</span>
+                          ) : (
+                            fmtMoney(c.proposedDaily)
+                          )}
                         </td>
                         <td
                           style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}
-                          className={changeTone(change)}
+                          className={isNoChange ? undefined : changeTone(change)}
                         >
-                          {fmtSignedPercent(change)}
+                          {isNoChange ? (
+                            <span className="text-xs text-slate-400 font-normal">—</span>
+                          ) : (
+                            fmtSignedPercent(change)
+                          )}
                         </td>
                         <td style={{ padding: '8px' }}>
                           {rec && (
