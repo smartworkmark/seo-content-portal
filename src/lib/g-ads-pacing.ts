@@ -194,7 +194,7 @@ export const SKIP_REASON_LABELS: Record<Exclude<SkipReason, ''>, string> = {
   CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING: 'No budget-limited sibling to fund',
   NO_MEANINGFUL_CHANGE: 'No meaningful change',
   MONTH_START_GRACE: 'Month start — monitoring only',
-  BUDGET_LIMITED_NO_DECREASE: 'Campaign is budget-capped — not reducing',
+  BUDGET_LIMITED_NO_DECREASE: 'Campaign is budget-capped',
 };
 
 // Color band for the 7-day utilization bar.
