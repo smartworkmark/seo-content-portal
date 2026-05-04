@@ -74,7 +74,8 @@ export type SkipReason =
   | 'CHRONIC_DEMAND_LIMITED_DONOR'
   | 'CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING'
   | 'NO_MEANINGFUL_CHANGE'
-  | 'MONTH_START_GRACE';
+  | 'MONTH_START_GRACE'
+  | 'BUDGET_LIMITED_NO_DECREASE';
 
 export interface GAdsPacingCampaign {
   campaignId: string;
