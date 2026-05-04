@@ -273,6 +273,7 @@ const VALID_SKIP_REASONS: readonly SkipReason[] = [
   'CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING',
   'NO_MEANINGFUL_CHANGE',
   'MONTH_START_GRACE',
+  'BUDGET_LIMITED_NO_DECREASE',
 ] as const;
 
 function normalizeClassification(raw: string | undefined): Classification {
