@@ -206,15 +206,26 @@ export default function Dashboard() {
     <div className={`min-h-screen ${showErrors ? 'bg-amber-50' : 'bg-gray-50'}`}>
       {/* Header */}
       <header className={`
-        bg-white border-b border-gray-200
+        bg-white/90 supports-[backdrop-filter]:bg-white/75 backdrop-blur-md
+        border-b border-gray-200
         sticky top-0 z-50
         transition-transform duration-300 ease-in-out
         ${headerVisible ? 'translate-y-0' : '-translate-y-full'}
       `}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-4">
-              <h1 className="text-xl font-bold text-gray-900">Content Portal</h1>
+          <div className="flex items-center justify-between h-20">
+            <div className="flex items-center gap-5">
+              <div className="flex items-center gap-4">
+                <img
+                  src="/dentalmarketing-logo.svg"
+                  alt="DentalMarketing.com"
+                  className="h-10 w-auto"
+                />
+                <div className="h-8 w-px bg-gray-300" aria-hidden />
+                <h1 className="text-lg font-semibold tracking-tight text-gray-900">
+                  Agent Portal
+                </h1>
+              </div>
               <ViewModeToggle showErrors={showErrors} onToggle={handleToggleErrorMode} />
             </div>
             <button
@@ -275,6 +286,27 @@ export default function Dashboard() {
 
         {/* Error Banner (only in error mode) */}
         {showErrors && <ErrorBanner />}
+
+        {/* Page eyebrow + heading */}
+        <div className="mb-6">
+          <span
+            className={`
+              inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em]
+              ${showErrors ? 'text-amber-700' : 'text-indigo-600'}
+            `}
+          >
+            <span
+              className={`
+                h-1.5 w-1.5 rounded-full animate-pulse
+                ${showErrors ? 'bg-amber-500' : 'bg-indigo-500'}
+              `}
+            />
+            {showErrors ? 'Error Log' : 'Live Dashboard'}
+          </span>
+          <h2 className="mt-2 text-2xl font-bold tracking-tight text-gray-900">
+            {showErrors ? 'Records filtered during validation' : 'Activity overview'}
+          </h2>
+        </div>
 
         {/* Summary Cards */}
         <section className="mb-8">

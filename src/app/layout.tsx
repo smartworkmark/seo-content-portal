@@ -10,8 +10,8 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Content Portal",
-  description: "Monitor blogs, GMB posts, and review replies across all practices",
+  title: "Agent Portal",
+  description: "Monitor blogs, GMB posts, review replies, negative keywords, and ad pacing across all practices",
 };
 
 export default function RootLayout({

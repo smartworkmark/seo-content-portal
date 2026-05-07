@@ -48,7 +48,7 @@ export function ContentTabs({
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             className={`
-              px-6 py-3 text-sm font-medium border-b-2 transition-colors
+              px-6 py-3 text-sm font-medium tracking-wide border-b-2 transition-colors
               ${activeTab === tab.id
                 ? isErrorMode
                   ? 'border-amber-500 text-amber-700'
