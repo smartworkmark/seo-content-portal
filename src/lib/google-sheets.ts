@@ -1,6 +1,7 @@
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, Severity, ApprovalStatus, RecommendationType, Classification, SkipReason } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
 import { isValidUrl } from '@/lib/utils';
+import { needsApproval } from './g-ads-pacing';
 
 // Check if Google Sheets credentials are configured
 function isConfigured(): boolean {
@@ -457,7 +458,7 @@ function calculateSummary(
     .filter((n) => parseDate(n.dateTime) >= sevenDaysAgo)
     .reduce((sum, n) => sum + n.termsReviewed, 0);
   const gAdsPacingPending7d = gAdsPacing.filter(
-    (g) => parseDate(g.runDate) >= sevenDaysAgo && g.approvalStatus === ''
+    (g) => parseDate(g.runDate) >= sevenDaysAgo && g.approvalStatus === '' && needsApproval(g)
   ).length;
 
   return {

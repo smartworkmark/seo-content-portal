@@ -109,6 +109,15 @@ export function actionDotCounts(
   return counts;
 }
 
+export function needsApproval(record: GAdsPacingRecord): boolean {
+  return record.campaigns.some(
+    (c) =>
+      c.recommendationType === 'BUDGET_INCREASE_APPROVAL' ||
+      c.recommendationType === 'BUDGET_DECREASE_APPROVAL' ||
+      c.recommendationType === 'PAUSE_CAMPAIGN',
+  );
+}
+
 // Compact MM/DD for the G Ads Pacing date column. Pacing is reviewed daily and
 // only ever spans a few days at a time, so the year is omitted to save column width.
 export function fmtCompactDate(dateStr: string): string {

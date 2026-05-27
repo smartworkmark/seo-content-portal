@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, ApprovalStatus, BlogError, GmbPostError, ErrorSummaryData } from '@/types';
 import { filterBlogs, filterGmbPosts, filterReplies, filterNegKeywordReviews, filterGAdsPacing, filterBlogErrors, filterGmbPostErrors } from '@/lib/utils';
 import { SummaryData } from '@/types';
+import { needsApproval } from '@/lib/g-ads-pacing';
 
 export interface GAdsPacingFeedbackPayload {
   approvalStatus: ApprovalStatus;
@@ -115,7 +116,7 @@ export function useContentData(
     const negKeywords7d = filterNegKeywordReviews(data.negKeywordReviews, [], '7d');
     const negKeywordsTerms7d = negKeywords7d.reduce((sum, n) => sum + n.termsReviewed, 0);
     const pacing7d = filterGAdsPacing(data.gAdsPacing, [], '7d');
-    const gAdsPacingPending7d = pacing7d.filter((g) => g.approvalStatus === '').length;
+    const gAdsPacingPending7d = pacing7d.filter((g) => g.approvalStatus === '' && needsApproval(g)).length;
     return {
       blogs7d: blogs7d.length,
       gmbPosts7d: gmbPosts7d.length,

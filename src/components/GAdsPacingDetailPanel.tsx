@@ -12,6 +12,7 @@ import {
   classificationBadge,
   fmtMoney,
   fmtSignedPercent,
+  needsApproval,
   shouldShowConflictIcon,
   shouldShowGenericInvestigateBanner,
   shouldShowGraceBanner,
@@ -141,8 +142,8 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
   const showInvestigate = shouldShowInvestigateBanner(record);
   const showGenericInvestigate = shouldShowGenericInvestigateBanner(record);
   const mix = budgetLimitedCount(record);
-  // Hide the feedback form when there's nothing actionable for Bill to approve.
-  const showFeedbackForm = !showGrace && !record.accountOnTrack;
+  // Hide the feedback form when there's nothing actionable to approve.
+  const showFeedbackForm = !showGrace && !record.accountOnTrack && needsApproval(record);
 
   return (
     <tr>

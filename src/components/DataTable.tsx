@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { SEVERITY_STYLES, actionDotCounts, fmtCompactDate, fmtMoney, fmtSignedPercent, variancePercentTone } from '@/lib/g-ads-pacing';
+import { SEVERITY_STYLES, actionDotCounts, fmtCompactDate, fmtMoney, fmtSignedPercent, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
 import type { GAdsPacingFeedbackPayload } from '@/hooks/useContentData';
 import { TableSkeleton } from './SkeletonLoader';
@@ -945,7 +945,7 @@ export function DataTable({
                             )}
                           </td>
                           <td className="px-4 py-3 text-sm whitespace-nowrap">
-                            {record.approvalStatus === '' && (
+                            {record.approvalStatus === '' && needsApproval(record) && (
                               <span className="text-indigo-700 font-medium">Needs review</span>
                             )}
                             {record.approvalStatus === 'Approved' && (

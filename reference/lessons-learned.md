@@ -224,6 +224,28 @@ If any ancestor has non-`visible` overflow, switch to a portal.
 
 ---
 
+## 2026-05-27 — "Needs Review" Showing for Accounts with No Approval Campaigns
+
+### Symptoms
+- The "Pacing Reviews Pending" summary card count was inflated — it counted every G Ads Pacing account with an empty `approvalStatus`, including accounts whose campaigns were all auto-applied (`BUDGET_INCREASE`, `BUDGET_DECREASE`) or `NO_CHANGE`.
+- "Needs review" chip appeared in the table for accounts that had nothing for a human to approve.
+- The feedback form (decision dropdown, reviewer name, notes) appeared in the detail panel for those same accounts.
+
+### Root Cause
+The approval status field (`approvalStatus`) defaults to `''` (empty string) for every account that hasn't been explicitly marked Approved or Rejected. The original UI logic treated `approvalStatus === ''` as synonymous with "needs review," but not every account actually needs a human decision — only those with campaigns of type `BUDGET_INCREASE_APPROVAL`, `BUDGET_DECREASE_APPROVAL`, or `PAUSE_CAMPAIGN`.
+
+### Fix
+Added `needsApproval(record: GAdsPacingRecord): boolean` helper in `src/lib/g-ads-pacing.ts` that returns true only when at least one campaign has an approval-required recommendation type. Gated three callsites on this helper:
+
+1. **"Needs review" chip** (`DataTable.tsx`) — `approvalStatus === '' && needsApproval(record)`
+2. **Feedback form** (`GAdsPacingDetailPanel.tsx`) — `!showGrace && !record.accountOnTrack && needsApproval(record)`
+3. **Summary count** (`useContentData.ts` and `google-sheets.ts`) — filter by `needsApproval(g)` before counting pending records
+
+### Rule to Remember
+**`approvalStatus === ''` means "not yet reviewed," not "needs a review."** An account with only auto-applied or no-change campaigns has nothing to approve — its approval status is empty by default, not because it's awaiting a decision. Always gate approval UI on the presence of approval-required recommendation types (`BUDGET_INCREASE_APPROVAL`, `BUDGET_DECREASE_APPROVAL`, `PAUSE_CAMPAIGN`), not just on an empty `approvalStatus`.
+
+---
+
 ## General Debugging Tips
 
 - **Check server logs first** — `GET /` repeating in the Next.js log is a sign of a reload loop, not normal behaviour.
