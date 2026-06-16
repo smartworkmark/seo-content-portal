@@ -59,6 +59,7 @@ export type RecommendationType =
   | 'BUDGET_INCREASE_APPROVAL'
   | 'BUDGET_DECREASE'
   | 'BUDGET_INCREASE'
+  | 'DOW_ADJUSTMENT'
   | 'NO_CHANGE';
 
 export type ApprovalStatus = '' | 'Approved' | 'Rejected';
@@ -92,6 +93,12 @@ export interface GAdsPacingCampaign {
   chronicDemandLimited: boolean;
   skipReason: SkipReason;
   conflictsWithPacing: boolean;
+  // Day-of-week shaping + auto-decrease (workflow v2, go-live 2026-06-12).
+  // finalDailyBudget is the value actually pushed to Google Ads (base x dow_multiplier,
+  // clamped). null on pre-go-live rows that have no value.
+  finalDailyBudget: number | null;
+  autoDecreasePromoted: boolean;
+  appliedDecreasePercent: number | null;
 }
 
 export interface GAdsPacingRecord {
@@ -114,6 +121,10 @@ export interface GAdsPacingRecord {
   accountOnTrack: boolean;
   allDemandLimited: boolean;
   anyBudgetLimited: boolean;
+  // Account-level day-of-week shaping. dowMultiplier is null/1 when shaping is
+  // inert (pre-go-live rows or the known Edit-Fields multiplier bug).
+  dowMultiplier: number | null;
+  dowFlags: string;
   campaigns: GAdsPacingCampaign[];
 }
 

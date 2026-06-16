@@ -2,6 +2,55 @@
 
 ---
 
+## 2026-06-15 — G Ads Pacing: recommendation label contradicts the applied budget
+
+### Symptoms
+After the pacing workflow added day-of-week (DOW) shaping (`final_daily_budget`, `dow_multiplier`, etc.), the detail panel showed rows like "No decrease" next to a real −22% cut, and "Decrease (auto)" on budgets that actually went **up**. In a real export, **29 of 129** post-go-live rows had a `recommendation_type` whose direction disagreed with the actual `current → final_daily_budget` move.
+
+### Root Cause
+The sheet exposes **two decision layers** that can point opposite directions:
+1. **Pacing layer** (`recommendation_type` + `skip_reason`) — the engine's month-to-date decision, measured against a *de-normalized baseline*, not the live budget.
+2. **Applied layer** (`final_daily_budget`) — the only number actually pushed to Google Ads.
+
+The old UI led with layer 1 (badge + skip subtext, `—` for "no change"), so it misreported what actually happened. Also: `final_daily_budget` lives past column `AN`, so the original `'A:AN'` fetch range never retrieved it.
+
+### Fix
+- **Widened fetch range** to `'A:BH'` (parser matches by header name, so over-fetching is safe).
+- **Made `current → final_daily_budget` the source of truth.** `campaignBudgetView()` derives direction/%/status from the real move; `recommendation_type` is used ONLY to branch auto-vs-approval. Skip-reason subtext is suppressed unless the row is genuinely flat. Pre-go-live rows (null `final`) fall back to the legacy rendering.
+
+### Rules to remember
+- For G Ads Pacing, **never derive a budget direction or "change" from `recommendation_type`** — use `current_daily_budget → finalDailyBudget` via `campaignBudgetView()`. The label can legitimately contradict the live budget because it's measured against a de-normalized base.
+- When a workflow adds columns, **check the fetch range** (`fetchSheet('G Ads Pacing', …)`) — new columns past the current range are silently dropped, not errored.
+- Two **upstream (n8n)** issues were identified, owned by the workflow author, NOT the portal: (1) `dow_multiplier` stuck at `1` (Edit-Fields node not passing the value through); (2) the DOW step shapes `proposedDailyBudget × multiplier` for skipped/NO_CHANGE rows — it should shape `currentDailyBudget × multiplier`, otherwise it re-applies pacing changes the engine deliberately skipped. **Both were fixed in the `2026-06-15` workflow** (see the 2026-06-16 entry below for the transition-day side effect).
+
+---
+
+## 2026-06-16 — G Ads Pacing: DOW go-live de-normalization boundary artifact
+
+### Symptoms
+First run after the `dow_multiplier` fix (Tuesday 06-16). Action rows (`BUDGET_INCREASE`/`DECREASE`) validated perfectly (`final == round(proposed × multiplier)`, 0 mismatches), but `DOW_ADJUSTMENT` rows were cutting ~16–20% off current (e.g. Fame Dental Local Dentistry $307 → $246) even though Tuesday's multiplier is only −4%. The portal correctly showed these (it just renders `current → final`), so it looked like the data over-cut.
+
+### Root Cause
+The workflow de-normalizes the live budget by an **estimated yesterday multiplier derived purely from yesterday's day-of-week**, gated on `DOW_ENABLED_SINCE`:
+```js
+const DOW_ENABLED_SINCE = '2026-06-12';
+if (yesterdayISO >= DOW_ENABLED_SINCE)
+  estimatedYesterdayMultiplier = 1 + DOW_MULTIPLIERS[yesterday.getDay()];  // Mon → 1.20
+baseCurrentDailyBudget = round(currentBudget / estimatedYesterdayMultiplier);
+```
+`DOW_ENABLED_SINCE` was `2026-06-12`, but the multiplier didn't *actually* apply until the Edit-Fields fix on `2026-06-16`. So on 06-16 the workflow divided out a Monday +20% boost that the bug had prevented from ever being applied → landed at ~`base × 0.80` instead of the intended `base × 0.96`.
+
+### Fix / Decision
+- Set `DOW_ENABLED_SINCE = '2026-06-16'` (the true go-live). Then 06-16 skips de-normalization (yesterday < enabled date → multiplier 1), and from 06-17 on "yesterday" is always a correctly-shaped day, so de-normalization is exact. No new over-correction is ever re-introduced.
+- The already-pushed 06-16 over-cut was **intentionally left to self-heal**: under-cutting budget-limited campaigns makes the account underpace, which the pacing engine corrects via `BUDGET_INCREASE`s over the following days. Demand-limited over-cuts are largely harmless (those campaigns weren't spending the budget anyway).
+
+### Rules to remember
+- A go-live date constant (`DOW_ENABLED_SINCE`) **must equal the date the behavior actually started taking effect**, not the date the code was deployed. A mismatch creates a one-time boundary artifact at the bug→fix transition.
+- The depressed base **does not snowball** — daily de-normalization preserves whatever base is live but never compounds the error; it decays only as pacing issues real increases. So "let it self-heal" is valid, but the heal relies on those catch-up increases actually applying (watch the approval queue for `BUDGET_INCREASE_APPROVAL` rows that would otherwise stall recovery).
+- When auditing DOW math, branch by row type: **action rows** use `final = round(campaign_proposed_daily_budget × dow_multiplier)`; **NO_CHANGE/DOW_ADJUSTMENT rows** use `final = round(deNormalizedCurrent × dow_multiplier)`, where `deNormalizedCurrent` is NOT written to the sheet — so a naive `final == proposed × mult` check will false-flag every no-change row.
+
+---
+
 ## 2026-03-09 — Infinite Reload Loop & Overheating
 
 ### Symptoms
