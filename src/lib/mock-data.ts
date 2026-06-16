@@ -278,19 +278,21 @@ type Scenario =
   | 'chronic'
   | 'mixed'
   | 'grace'
-  | 'conflict';
+  | 'conflict'
+  | 'dow';
 
 function pickScenario(i: number): Scenario {
-  // Deterministic distribution roughly: 30% on-track, 25% budget-limited, 20% all-demand,
-  // 10% chronic, 5% mixed, 5% grace, 5% conflict.
+  // Deterministic distribution. 'dow' exercises day-of-week shaping (multiplier != 1,
+  // DOW_ADJUSTMENT rows, an auto-promoted decrease).
   const m = i % 20;
-  if (m < 6) return 'on-track';
-  if (m < 11) return 'budget-limited';
-  if (m < 15) return 'all-demand';
-  if (m < 17) return 'chronic';
-  if (m === 17) return 'mixed';
-  if (m === 18) return 'grace';
-  return 'conflict';
+  if (m < 5) return 'on-track';
+  if (m < 10) return 'budget-limited';
+  if (m < 14) return 'all-demand';
+  if (m < 16) return 'chronic';
+  if (m === 16) return 'mixed';
+  if (m === 17) return 'grace';
+  if (m === 18) return 'conflict';
+  return 'dow';
 }
 
 function buildCampaign(
@@ -299,6 +301,7 @@ function buildCampaign(
   base: number,
   spendShare: number,
   scenario: Scenario,
+  dowMultiplier: number,
 ): GAdsPacingCampaign {
   const campaignNames = ['General Dentistry', 'Implants', 'Emergency', 'Cosmetic'];
   const currentDaily = Math.round(base / 30);
@@ -313,6 +316,8 @@ function buildCampaign(
   let skipReason: SkipReason = '';
   let conflictsWithPacing = false;
   let proposedDaily = currentDaily;
+  let autoDecreasePromoted = false;
+  let appliedDecreasePercent: number | null = null;
 
   switch (scenario) {
     case 'on-track':
@@ -384,6 +389,27 @@ function buildCampaign(
       proposedDaily = Math.round(currentDaily * (j === 0 ? 1.25 : 0.7));
       searchBudgetLostIs = 30 + (j * 5);
       break;
+    case 'dow':
+      // Day-of-week shaping is live (multiplier != 1). Pacing mostly says "hold",
+      // but the shaped budget moves the live number, so rows become DOW_ADJUSTMENT.
+      classification = j % 2 === 0 ? 'BUDGET_LIMITED' : 'DEMAND_LIMITED';
+      sevenDayAvgUtilization = classification === 'BUDGET_LIMITED' ? 92 + (j * 4) : 45 + (j * 4);
+      yesterdayUtilization = sevenDayAvgUtilization;
+      utilizationDays = 7;
+      if (j === 0) {
+        // An auto-promoted decrease (Bill's June rule).
+        recommendationType = 'BUDGET_DECREASE';
+        proposedDaily = Math.round(currentDaily * 0.78);
+        autoDecreasePromoted = true;
+        appliedDecreasePercent = 22;
+      } else {
+        // Pacing held, but day-of-week shaping nudges the budget → DOW_ADJUSTMENT.
+        recommendationType = 'DOW_ADJUSTMENT';
+        proposedDaily = currentDaily;
+        skipReason = classification === 'BUDGET_LIMITED' ? 'BUDGET_LIMITED_NO_DECREASE' : 'DEMAND_LIMITED_NO_CHANGE';
+        searchBudgetLostIs = classification === 'BUDGET_LIMITED' ? 12 + (j * 3) : 0;
+      }
+      break;
   }
 
   return {
@@ -401,6 +427,12 @@ function buildCampaign(
     chronicDemandLimited,
     skipReason,
     conflictsWithPacing,
+    // final = base proposed x day-of-week multiplier (clamped is handled upstream;
+    // mock keeps it simple). With multiplier 1 this equals proposedDaily, matching
+    // the current inert real-world data.
+    finalDailyBudget: Math.round(proposedDaily * dowMultiplier),
+    autoDecreasePromoted,
+    appliedDecreasePercent,
   };
 }
 
@@ -457,13 +489,23 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
         variance = 22 + (i % 10);
         anyBudgetLimited = true;
         break;
+      case 'dow':
+        severity = 'Auto';
+        variance = -6 + (i % 8);
+        anyBudgetLimited = true;
+        break;
     }
+
+    // Day-of-week multiplier is inert (1) for every scenario except 'dow', mirroring
+    // current production data where the shaping isn't applied yet.
+    const dowMultiplier = scenario === 'dow' ? 1.2 : 1;
+    const dowFlags = scenario === 'dow' && i % 2 === 0 ? 'CATCH_UP_HALVED' : '';
 
     const expected = monthlyBudget * 0.7;
     const spend = Math.round(expected * (1 + variance / 100));
-    const numCampaigns = scenario === 'mixed' ? 4 : 2 + (i % 3);
+    const numCampaigns = scenario === 'mixed' || scenario === 'dow' ? 4 : 2 + (i % 3);
     const campaigns: GAdsPacingCampaign[] = Array.from({ length: numCampaigns }, (_, j) =>
-      buildCampaign(i, j, monthlyBudget, 1 / numCampaigns, scenario),
+      buildCampaign(i, j, monthlyBudget, 1 / numCampaigns, scenario, dowMultiplier),
     );
 
     return {
@@ -486,6 +528,8 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       accountOnTrack,
       allDemandLimited,
       anyBudgetLimited,
+      dowMultiplier,
+      dowFlags,
       campaigns,
     };
   });

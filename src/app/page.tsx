@@ -125,6 +125,8 @@ export default function Dashboard() {
         { key: 'monthlyBudget', label: 'Budget' },
         { key: 'spendMtd', label: 'Spent MTD' },
         { key: 'variancePercent', label: 'Variance %' },
+        { key: 'dowMultiplier', label: 'DOW Multiplier' },
+        { key: 'dowFlags', label: 'DOW Flags' },
         { key: 'approvalStatus', label: 'Approval' },
         { key: 'reviewedBy', label: 'Reviewed By' },
         { key: 'notes', label: 'Notes' },

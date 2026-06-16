@@ -241,6 +241,7 @@ const VALID_RECOMMENDATIONS: readonly RecommendationType[] = [
   'BUDGET_INCREASE_APPROVAL',
   'BUDGET_DECREASE',
   'BUDGET_INCREASE',
+  'DOW_ADJUSTMENT',
   'NO_CHANGE',
 ] as const;
 
@@ -352,6 +353,12 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
   const anyBudgetLimitedIdx = idx('any_budget_limited');
   const conflictsIdx = idx('conflicts_with_pacing');
   const sevenDayUtilIdx = idx('seven_day_avg_utilization');
+  // Day-of-week shaping + auto-decrease (workflow v2)
+  const finalDailyIdx = idx('final_daily_budget');
+  const autoDecreaseIdx = idx('auto_decrease_promoted');
+  const appliedDecreaseIdx = idx('applied_decrease_percent');
+  const dowMultiplierIdx = idx('dow_multiplier');
+  const dowFlagsIdx = idx('dow_flags');
 
   const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
 
@@ -378,6 +385,9 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       chronicDemandLimited: toBool(cell(row, chronicIdx)),
       skipReason: normalizeSkipReason(cell(row, skipReasonIdx)),
       conflictsWithPacing: toBool(cell(row, conflictsIdx)),
+      finalDailyBudget: toNumOrNull(cell(row, finalDailyIdx)),
+      autoDecreasePromoted: toBool(cell(row, autoDecreaseIdx)),
+      appliedDecreasePercent: toNumOrNull(cell(row, appliedDecreaseIdx)),
     };
 
     const existing = groups.get(key);
@@ -402,6 +412,9 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       if (!existing.accountOnTrack) existing.accountOnTrack = toBool(cell(row, accountOnTrackIdx));
       if (!existing.allDemandLimited) existing.allDemandLimited = toBool(cell(row, allDemandLimitedIdx));
       if (!existing.anyBudgetLimited) existing.anyBudgetLimited = toBool(cell(row, anyBudgetLimitedIdx));
+      // Account-level DOW fields: fill from a later row if the first was empty.
+      if (existing.dowMultiplier === null) existing.dowMultiplier = toNumOrNull(cell(row, dowMultiplierIdx));
+      if (!existing.dowFlags) existing.dowFlags = cell(row, dowFlagsIdx) || '';
     } else {
       groups.set(key, {
         id: key,
@@ -423,6 +436,8 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
         accountOnTrack: toBool(cell(row, accountOnTrackIdx)),
         allDemandLimited: toBool(cell(row, allDemandLimitedIdx)),
         anyBudgetLimited: toBool(cell(row, anyBudgetLimitedIdx)),
+        dowMultiplier: toNumOrNull(cell(row, dowMultiplierIdx)),
+        dowFlags: cell(row, dowFlagsIdx) || '',
         campaigns: [campaign],
       });
     }
@@ -501,7 +516,7 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       fetchSheet('GMB Posts'),
       fetchSheet('GMB Replies'),
       fetchSheet('Negative Keywords').catch(() => [] as string[][]),
-      fetchSheet('G Ads Pacing', 'A:AN').catch(() => [] as string[][]),
+      fetchSheet('G Ads Pacing', 'A:BH').catch(() => [] as string[][]),
     ]);
 
     const { valid: blogs, errors: blogErrors } = parseBlogs(blogsData);

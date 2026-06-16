@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { SEVERITY_STYLES, actionDotCounts, fmtCompactDate, fmtMoney, fmtSignedPercent, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
+import { SEVERITY_STYLES, actionDotCounts, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
 import type { GAdsPacingFeedbackPayload } from '@/hooks/useContentData';
 import { TableSkeleton } from './SkeletonLoader';
@@ -882,7 +882,9 @@ export function DataTable({
                     const isExpanded = expandedGAdsRow === record.id;
                     const sev = SEVERITY_STYLES[record.severity];
                     const dots = actionDotCounts(record.campaigns);
-                    const onTrack = record.accountOnTrack;
+                    // An on-track account can still get a day-of-week budget move. Only show the
+                    // "On track" pill (and dim the row) when nothing actually moved the live budget.
+                    const onTrack = record.accountOnTrack && !hasAppliedChange(record);
                     return (
                       <Fragment key={record.id}>
                         <tr

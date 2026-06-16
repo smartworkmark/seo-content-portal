@@ -5,15 +5,22 @@ import { createPortal } from 'react-dom';
 import type { ApprovalStatus, GAdsPacingCampaign, GAdsPacingRecord } from '@/types';
 import type { GAdsPacingFeedbackPayload } from '@/hooks/useContentData';
 import {
+  DOW_FLAG_LABELS,
   RECOMMENDATION_LABELS,
   SKIP_REASON_LABELS,
+  appliedStatusLabel,
   budgetLimitedCount,
+  campaignBudgetView,
   changeTone,
   classificationBadge,
+  dowFlagsList,
+  dowPercentLabel,
+  dowWeekdayLabel,
   fmtMoney,
   fmtSignedPercent,
   needsApproval,
   shouldShowConflictIcon,
+  shouldShowDowBanner,
   shouldShowGenericInvestigateBanner,
   shouldShowGraceBanner,
   shouldShowInvestigateBanner,
@@ -95,7 +102,7 @@ function Banner({
   title,
   body,
 }: {
-  tone: 'violet' | 'slate' | 'amber';
+  tone: 'violet' | 'slate' | 'amber' | 'teal';
   title: string;
   body?: string;
 }) {
@@ -103,6 +110,7 @@ function Banner({
     violet: 'bg-violet-50 ring-1 ring-violet-200 text-violet-900',
     slate: 'bg-slate-50 ring-1 ring-slate-200 text-slate-700',
     amber: 'bg-amber-50 ring-1 ring-amber-200 text-amber-900',
+    teal: 'bg-teal-50 ring-1 ring-teal-200 text-teal-900',
   }[tone];
   return (
     <div className={`rounded-lg px-4 py-3 ${palette}`}>
@@ -110,6 +118,20 @@ function Banner({
       {body && <div className="mt-1 text-xs leading-relaxed opacity-90">{body}</div>}
     </div>
   );
+}
+
+// Pill styling for the derived applied-status label (not the raw recommendation_type).
+function statusPillStyle(label: string): { pill: string; text: string } {
+  switch (label) {
+    case 'Pause (pending)':
+      return { pill: 'bg-rose-50 ring-1 ring-rose-200', text: 'text-rose-700' };
+    case 'Pending approval':
+      return { pill: 'bg-amber-50 ring-1 ring-amber-200', text: 'text-amber-700' };
+    case 'No change':
+      return { pill: 'bg-slate-100 ring-1 ring-slate-200', text: 'text-slate-600' };
+    default: // Auto-applied
+      return { pill: 'bg-sky-50 ring-1 ring-sky-200', text: 'text-sky-700' };
+  }
 }
 
 export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingDetailPanelProps) {
@@ -141,7 +163,13 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
   const showGrace = shouldShowGraceBanner(record);
   const showInvestigate = shouldShowInvestigateBanner(record);
   const showGenericInvestigate = shouldShowGenericInvestigateBanner(record);
+  const showDow = shouldShowDowBanner(record);
+  const dowMult = record.dowMultiplier ?? 1;
+  const dowFlags = dowFlagsList(record.dowFlags);
   const mix = budgetLimitedCount(record);
+  // Once any row carries a final_daily_budget, the table leads with the actually-applied
+  // budget (current -> final). Pre-go-live rows (no final) keep the legacy proposed view.
+  const anyFinal = record.campaigns.some((c) => c.finalDailyBudget !== null);
   // Hide the feedback form when there's nothing actionable to approve.
   const showFeedbackForm = !showGrace && !record.accountOnTrack && needsApproval(record);
 
@@ -172,6 +200,17 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
           )}
           {showGenericInvestigate && (
             <Banner tone="slate" title="No actionable changes identified." />
+          )}
+          {showDow && (
+            <Banner
+              tone="teal"
+              title={`${dowWeekdayLabel(record.runDate)} ${dowPercentLabel(dowMult)} day-of-week budget shaping`}
+              body={
+                dowFlags.length > 0
+                  ? dowFlags.map((f) => DOW_FLAG_LABELS[f] ?? f).join(' · ')
+                  : 'Daily budgets are scaled by day-of-week performance. The applied budget below reflects this shaping.'
+              }
+            />
           )}
 
           {/* Campaign Breakdown */}
@@ -213,15 +252,21 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
                     <th style={{ padding: '6px 8px', fontWeight: 600 }}>7-day util</th>
                     <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Spend MTD</th>
                     <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Current /day</th>
-                    <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Proposed /day</th>
+                    <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>{anyFinal ? 'Applied /day' : 'Proposed /day'}</th>
                     <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Change</th>
-                    <th style={{ padding: '6px 8px', fontWeight: 600 }}>Recommendation</th>
+                    <th style={{ padding: '6px 8px', fontWeight: 600 }}>{anyFinal ? 'Status' : 'Recommendation'}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {record.campaigns.map((c, i) => {
-                    const isNoChange = c.recommendationType === 'NO_CHANGE';
-                    const change = c.currentDaily > 0
+                    const view = campaignBudgetView(c);
+                    const badge = classificationBadge(c);
+                    const conflict = shouldShowConflictIcon(c);
+                    const isLost = shouldShowIsLost(c);
+
+                    // Legacy (pre-go-live, no final_daily_budget): old proposed/recommendation view.
+                    const legacyNoChange = c.recommendationType === 'NO_CHANGE';
+                    const legacyChange = c.currentDaily > 0
                       ? ((c.proposedDaily - c.currentDaily) / c.currentDaily) * 100
                       : c.proposedDaily > 0
                         ? 100
@@ -229,13 +274,31 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
                     const rec = c.recommendationType
                       ? RECOMMENDATION_LABELS[c.recommendationType]
                       : null;
-                    const badge = classificationBadge(c);
-                    const conflict = shouldShowConflictIcon(c);
-                    const isLost = shouldShowIsLost(c);
-                    const skipLabel =
-                      c.recommendationType === 'NO_CHANGE' && c.skipReason
-                        ? SKIP_REASON_LABELS[c.skipReason]
-                        : null;
+                    const legacySkipLabel =
+                      legacyNoChange && c.skipReason ? SKIP_REASON_LABELS[c.skipReason] : null;
+
+                    // New model: status pill + why-line driven by the actual applied movement.
+                    const statusLabel = appliedStatusLabel(view);
+                    const statusStyle = statusPillStyle(statusLabel);
+                    const whyParts: string[] = [];
+                    if (view.direction !== 'flat' && showDow) whyParts.push('day-of-week shaping');
+                    if (c.autoDecreasePromoted) {
+                      whyParts.push(
+                        c.appliedDecreasePercent !== null
+                          ? `auto-applied ${Math.round(c.appliedDecreasePercent)}% cut`
+                          : 'auto-applied decrease',
+                      );
+                    }
+                    // Skip reason explains genuine no-movement rows only — never shown beside a real change.
+                    if (view.direction === 'flat' && c.skipReason) {
+                      const s = SKIP_REASON_LABELS[c.skipReason];
+                      if (s) whyParts.push(s);
+                    }
+
+                    // Applied/proposed amount + change %, branching on whether we have a final budget.
+                    const showDash = view.hasFinal ? view.direction === 'flat' : legacyNoChange;
+                    const amount = view.hasFinal ? view.target : c.proposedDaily;
+                    const changePct = view.hasFinal ? view.deltaPct : legacyChange;
                     return (
                       <tr key={c.campaignId || i} style={{ borderTop: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>
@@ -278,27 +341,27 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
                           {fmtMoney(c.currentDaily)}
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#334155' }}>
-                          {isNoChange ? (
+                          {showDash ? (
                             <span className="text-xs text-slate-400">—</span>
                           ) : (
-                            fmtMoney(c.proposedDaily)
+                            fmtMoney(amount)
                           )}
                         </td>
                         <td
                           style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}
-                          className={isNoChange ? undefined : changeTone(change)}
+                          className={showDash ? undefined : changeTone(changePct)}
                         >
-                          {isNoChange ? (
+                          {showDash ? (
                             <span className="text-xs text-slate-400 font-normal">—</span>
                           ) : (
-                            fmtSignedPercent(change)
+                            fmtSignedPercent(changePct)
                           )}
                         </td>
                         <td style={{ padding: '8px' }}>
-                          {rec && (
+                          {view.hasFinal ? (
                             <div className="flex flex-col gap-0.5">
                               <span
-                                className={`${rec.pill} ${rec.text} inline-flex w-fit`}
+                                className={`${statusStyle.pill} ${statusStyle.text} inline-flex w-fit`}
                                 style={{
                                   padding: '2px 10px',
                                   borderRadius: 999,
@@ -306,12 +369,33 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
                                   fontWeight: 600,
                                 }}
                               >
-                                {rec.label}
+                                {statusLabel}
                               </span>
-                              {skipLabel && (
-                                <span className="text-[11px] italic text-slate-500">{skipLabel}</span>
+                              {whyParts.length > 0 && (
+                                <span className="text-[11px] italic text-slate-500">
+                                  {whyParts.join(' · ')}
+                                </span>
                               )}
                             </div>
+                          ) : (
+                            rec && (
+                              <div className="flex flex-col gap-0.5">
+                                <span
+                                  className={`${rec.pill} ${rec.text} inline-flex w-fit`}
+                                  style={{
+                                    padding: '2px 10px',
+                                    borderRadius: 999,
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  {rec.label}
+                                </span>
+                                {legacySkipLabel && (
+                                  <span className="text-[11px] italic text-slate-500">{legacySkipLabel}</span>
+                                )}
+                              </div>
+                            )
                           )}
                         </td>
                       </tr>

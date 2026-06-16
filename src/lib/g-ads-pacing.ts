@@ -72,6 +72,11 @@ export const RECOMMENDATION_LABELS: Record<
     pill: 'bg-sky-50 ring-1 ring-sky-200',
     text: 'text-sky-700',
   },
+  DOW_ADJUSTMENT: {
+    label: 'Day-of-week',
+    pill: 'bg-teal-50 ring-1 ring-teal-200',
+    text: 'text-teal-700',
+  },
   NO_CHANGE: {
     label: 'No change',
     pill: 'bg-slate-100 ring-1 ring-slate-200',
@@ -79,32 +84,74 @@ export const RECOMMENDATION_LABELS: Record<
   },
 };
 
+// === Source of truth: what actually happens to the live budget ===
+// The pacing recommendation_type/skip_reason describe the engine's decision against a
+// de-normalized baseline and can contradict the live budget (a "decrease" that raises
+// the budget, a "no change" skip that applies a real cut). The number actually pushed
+// to Google Ads is final_daily_budget, so the UI must lead with current -> final.
+// recommendation_type is trusted ONLY for whether a row needs approval, never for direction.
+export type BudgetMode = 'auto' | 'approval' | 'pause';
+
+export interface CampaignBudgetView {
+  hasFinal: boolean;     // false on pre-go-live rows (no final_daily_budget) -> legacy render
+  mode: BudgetMode;
+  current: number;
+  target: number;        // finalDailyBudget when present, else proposedDaily
+  deltaPct: number;      // (target - current) / current * 100
+  direction: 'up' | 'down' | 'flat';
+}
+
+export function campaignBudgetView(
+  campaign: Pick<
+    GAdsPacingCampaign,
+    'recommendationType' | 'currentDaily' | 'proposedDaily' | 'finalDailyBudget'
+  >,
+): CampaignBudgetView {
+  const mode: BudgetMode =
+    campaign.recommendationType === 'PAUSE_CAMPAIGN'
+      ? 'pause'
+      : campaign.recommendationType === 'BUDGET_DECREASE_APPROVAL' ||
+          campaign.recommendationType === 'BUDGET_INCREASE_APPROVAL'
+        ? 'approval'
+        : 'auto';
+
+  const hasFinal = campaign.finalDailyBudget !== null;
+  const current = campaign.currentDaily;
+  const target = campaign.finalDailyBudget ?? campaign.proposedDaily;
+  const delta = target - current;
+  const deltaPct = current > 0 ? (delta / current) * 100 : target > 0 ? 100 : 0;
+  // "flat" when the move is negligible in both absolute and relative terms.
+  const direction: CampaignBudgetView['direction'] =
+    Math.abs(delta) < 1 && Math.abs(deltaPct) < 1 ? 'flat' : delta > 0 ? 'up' : 'down';
+
+  return { hasFinal, mode, current, target, deltaPct, direction };
+}
+
+// Headline status pill — derived from the actual movement, not the raw label.
+export function appliedStatusLabel(view: CampaignBudgetView): string {
+  if (view.mode === 'pause') return 'Pause (pending)';
+  if (view.mode === 'approval') return 'Pending approval';
+  if (view.direction === 'flat') return 'No change';
+  return 'Auto-applied';
+}
+
 export interface ActionDotCounts {
   red: number;
   amber: number;
   blue: number;
 }
 
+// Movement-based: red = pending pause, amber = pending approval, blue = an auto change
+// that actually moves the live budget. Flat/no-change rows contribute nothing.
 export function actionDotCounts(
   campaigns: GAdsPacingCampaign[],
 ): ActionDotCounts {
   const counts: ActionDotCounts = { red: 0, amber: 0, blue: 0 };
   for (const c of campaigns) {
-    switch (c.recommendationType) {
-      case 'PAUSE_CAMPAIGN':
-        counts.red += 1;
-        break;
-      case 'BUDGET_DECREASE_APPROVAL':
-      case 'BUDGET_INCREASE_APPROVAL':
-        counts.amber += 1;
-        break;
-      case 'BUDGET_DECREASE':
-      case 'BUDGET_INCREASE':
-        counts.blue += 1;
-        break;
-      default:
-        break;
-    }
+    const view = campaignBudgetView(c);
+    if (view.mode === 'pause') counts.red += 1;
+    else if (view.mode === 'approval') counts.amber += 1;
+    else if (view.direction !== 'flat') counts.blue += 1;
   }
   return counts;
 }
@@ -116,6 +163,12 @@ export function needsApproval(record: GAdsPacingRecord): boolean {
       c.recommendationType === 'BUDGET_DECREASE_APPROVAL' ||
       c.recommendationType === 'PAUSE_CAMPAIGN',
   );
+}
+
+// True when at least one campaign actually moves the live budget — used to decide
+// whether an on-track account row should still be highlighted rather than dimmed.
+export function hasAppliedChange(record: Pick<GAdsPacingRecord, 'campaigns'>): boolean {
+  return record.campaigns.some((c) => campaignBudgetView(c).direction !== 'flat');
 }
 
 // Compact MM/DD for the G Ads Pacing date column. Pacing is reviewed daily and
@@ -277,6 +330,46 @@ export function shouldShowUtilBar(
 ): boolean {
   if (campaign.skipReason === 'MONTH_START_GRACE') return false;
   return campaign.sevenDayAvgUtilization !== null;
+}
+
+// === Day-of-week shaping (account-level) ===
+// Friendly labels for the pipe-delimited dow_flags string.
+export const DOW_FLAG_LABELS: Record<string, string> = {
+  CATCH_UP_HALVED: 'catch-up: shaping halved',
+  MONTH_END_SUPPRESSED: 'suppressed near month-end',
+};
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export function dowWeekdayLabel(runDate: string): string {
+  if (!runDate) return '';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(runDate.trim());
+  // Parse as a local date to avoid UTC off-by-one on the weekday.
+  const d = m
+    ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+    : new Date(runDate);
+  if (Number.isNaN(d.getTime())) return '';
+  return WEEKDAY_NAMES[d.getDay()];
+}
+
+// Signed percent lift from a multiplier, e.g. 1.2 -> "+20%", 0.74 -> "-26%".
+export function dowPercentLabel(multiplier: number): string {
+  return fmtSignedPercent((multiplier - 1) * 100);
+}
+
+export function dowFlagsList(flags: string): string[] {
+  return (flags || '')
+    .split('|')
+    .map((f) => f.trim())
+    .filter(Boolean);
+}
+
+// The DOW banner/chip only shows once shaping is actually moving budgets. A null or
+// 1.0 multiplier (pre-go-live rows, or the known Edit-Fields pass-through bug) is inert.
+export function shouldShowDowBanner(
+  record: Pick<GAdsPacingRecord, 'dowMultiplier'>,
+): boolean {
+  return record.dowMultiplier !== null && record.dowMultiplier !== 1;
 }
 
 // Use just the unused Classification type to keep it exported and avoid lint dead-import warnings.
