@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, Severity, ApprovalStatus, RecommendationType, Classification, SkipReason } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, Severity, ApprovalStatus, RecommendationType, Classification, SkipReason, KwBuildoutRecord, KwBuildoutKeyword, Confidence } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
 import { isValidUrl } from '@/lib/utils';
 import { needsApproval } from './g-ads-pacing';
@@ -446,6 +446,106 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
   return Array.from(groups.values());
 }
 
+function normalizeConfidence(raw: string | undefined): Confidence {
+  const trimmed = (raw || '').trim().toLowerCase();
+  if (trimmed === 'high') return 'high';
+  if (trimmed === 'medium') return 'medium';
+  if (trimmed === 'low') return 'low';
+  return '';
+}
+
+// Parse KW Buildout Proposals rows (one row per proposed keyword) and group into per-batch
+// records keyed by batch_id (= kw-{account_id}-{date}), falling back to (logged_at|account_id).
+// Sheet columns: account_id, account_name, campaign_id, campaign_name, ad_group_id, ad_group_name,
+// proposed_keyword, proposed_match_type, match_type_basis, source_search_term, search_term_status,
+// served_by_keyword, conversions, cost, cpa, confidence, flags, needs_new_ad_group, status,
+// logged_at, batch_id, approval
+function parseKwBuildout(rows: string[][]): KwBuildoutRecord[] {
+  if (rows.length <= 1) return [];
+
+  const headers = rows[0].map((h) => h.toLowerCase().trim());
+  const idx = (name: string) => headers.findIndex((h) => h === name);
+  const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
+
+  const accountIdIdx = idx('account_id');
+  const accountNameIdx = idx('account_name');
+  const campaignIdIdx = idx('campaign_id');
+  const campaignNameIdx = idx('campaign_name');
+  const adGroupIdIdx = idx('ad_group_id');
+  const adGroupNameIdx = idx('ad_group_name');
+  const proposedKeywordIdx = idx('proposed_keyword');
+  const matchTypeIdx = idx('proposed_match_type');
+  const matchBasisIdx = idx('match_type_basis');
+  const sourceTermIdx = idx('source_search_term');
+  const searchStatusIdx = idx('search_term_status');
+  const servedByIdx = idx('served_by_keyword');
+  const conversionsIdx = idx('conversions');
+  const costIdx = idx('cost');
+  const cpaIdx = idx('cpa');
+  const confidenceIdx = idx('confidence');
+  const flagsIdx = idx('flags');
+  const needsNewAdGroupIdx = idx('needs_new_ad_group');
+  const statusIdx = idx('status');
+  const loggedAtIdx = idx('logged_at');
+  const batchIdIdx = idx('batch_id');
+  const approvalIdx = idx('approval');
+  const proposalIdIdx = idx('proposal_id');
+
+  const groups = new Map<string, KwBuildoutRecord>();
+
+  rows.slice(1).forEach((row) => {
+    const accountId = accountIdIdx >= 0 ? (row[accountIdIdx] || '') : '';
+    const loggedAt = loggedAtIdx >= 0 ? (row[loggedAtIdx] || '') : '';
+    const proposedKeyword = proposedKeywordIdx >= 0 ? (row[proposedKeywordIdx] || '') : '';
+    if (!proposedKeyword) return;
+
+    const batchId = (batchIdIdx >= 0 ? (row[batchIdIdx] || '') : '') || `${loggedAt}|${accountId}`;
+    if (!batchId) return;
+
+    const keyword: KwBuildoutKeyword = {
+      campaignId: campaignIdIdx >= 0 ? (row[campaignIdIdx] || '') : '',
+      campaignName: campaignNameIdx >= 0 ? (row[campaignNameIdx] || '') : '',
+      adGroupId: adGroupIdIdx >= 0 ? (row[adGroupIdIdx] || '') : '',
+      adGroupName: adGroupNameIdx >= 0 ? (row[adGroupNameIdx] || '') : '',
+      proposedKeyword,
+      proposedMatchType: matchTypeIdx >= 0 ? (row[matchTypeIdx] || '') : '',
+      matchTypeBasis: matchBasisIdx >= 0 ? (row[matchBasisIdx] || '') : '',
+      sourceSearchTerm: sourceTermIdx >= 0 ? (row[sourceTermIdx] || '') : '',
+      searchTermStatus: searchStatusIdx >= 0 ? (row[searchStatusIdx] || '') : '',
+      servedByKeyword: servedByIdx >= 0 ? (row[servedByIdx] || '') : '',
+      conversions: toNum(cell(row, conversionsIdx)),
+      cost: toNum(cell(row, costIdx)),
+      cpa: toNum(cell(row, cpaIdx)),
+      confidence: normalizeConfidence(cell(row, confidenceIdx)),
+      flags: flagsIdx >= 0 ? (row[flagsIdx] || '') : '',
+      needsNewAdGroup: toBool(cell(row, needsNewAdGroupIdx)),
+      status: statusIdx >= 0 ? (row[statusIdx] || '') : '',
+      approval: normalizeApprovalStatus(cell(row, approvalIdx) || ''),
+      proposalId: proposalIdIdx >= 0 ? (row[proposalIdIdx] || '') : '',
+    };
+
+    const existing = groups.get(batchId);
+    if (existing) {
+      existing.keywords.push(keyword);
+      // Fill account-level fields from a later row if the first was empty.
+      if (!existing.accountId && accountId) existing.accountId = accountId;
+      if (!existing.accountName && accountNameIdx >= 0) existing.accountName = row[accountNameIdx] || '';
+      if (!existing.loggedAt && loggedAt) existing.loggedAt = loggedAt;
+    } else {
+      groups.set(batchId, {
+        id: batchId,
+        batchId,
+        loggedAt,
+        accountId,
+        accountName: accountNameIdx >= 0 ? (row[accountNameIdx] || '') : '',
+        keywords: [keyword],
+      });
+    }
+  });
+
+  return Array.from(groups.values());
+}
+
 // Helper to parse date strings
 function parseDate(dateStr: string): Date {
   // Try to parse date string (handles formats like "2025-09-15" or "2025-09-15 15:12" or "2025-11-20 17:44")
@@ -459,7 +559,8 @@ function calculateSummary(
   gmbPosts: GmbPost[],
   replies: GmbReply[],
   negKeywordReviews: NegKeywordReview[],
-  gAdsPacing: GAdsPacingRecord[]
+  gAdsPacing: GAdsPacingRecord[],
+  kwBuildout: KwBuildoutRecord[]
 ) {
   // Use 6 days ago to get a 7-day window inclusive of today (matches client-side '7d' filter)
   const sevenDaysAgo = new Date();
@@ -475,6 +576,9 @@ function calculateSummary(
   const gAdsPacingPending7d = gAdsPacing.filter(
     (g) => parseDate(g.runDate) >= sevenDaysAgo && g.approvalStatus === '' && needsApproval(g)
   ).length;
+  const kwBuildoutPending7d = kwBuildout
+    .filter((k) => parseDate(k.loggedAt) >= sevenDaysAgo)
+    .reduce((sum, k) => sum + k.keywords.filter((kw) => kw.approval === '').length, 0);
 
   return {
     blogs7d,
@@ -482,6 +586,7 @@ function calculateSummary(
     replies7d,
     negKeywordsTerms7d,
     gAdsPacingPending7d,
+    kwBuildoutPending7d,
   };
 }
 
@@ -511,12 +616,13 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
 
   try {
     // Fetch all sheets in parallel (newer sheets may not exist yet — gracefully return empty)
-    const [blogsData, gmbPostsData, repliesData, negKeywordsData, gAdsPacingData] = await Promise.all([
+    const [blogsData, gmbPostsData, repliesData, negKeywordsData, gAdsPacingData, kwBuildoutData] = await Promise.all([
       fetchSheet('Blogs'),
       fetchSheet('GMB Posts'),
       fetchSheet('GMB Replies'),
       fetchSheet('Negative Keywords').catch(() => [] as string[][]),
       fetchSheet('G Ads Pacing', 'A:BH').catch(() => [] as string[][]),
+      fetchSheet('KW Buildout Proposals').catch(() => [] as string[][]),
     ]);
 
     const { valid: blogs, errors: blogErrors } = parseBlogs(blogsData);
@@ -524,6 +630,7 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
     const replies = parseReplies(repliesData);
     const negKeywordReviews = parseNegKeywordReviews(negKeywordsData);
     const gAdsPacing = parseGAdsPacing(gAdsPacingData);
+    const kwBuildout = parseKwBuildout(kwBuildoutData);
 
     // Sort by date descending
     blogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -531,6 +638,7 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
     replies.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
     negKeywordReviews.sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime());
     gAdsPacing.sort((a, b) => new Date(b.runDate).getTime() - new Date(a.runDate).getTime());
+    kwBuildout.sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime());
     blogErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     gmbPostErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -540,6 +648,7 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       ...gmbPosts.map((p) => p.practiceName),
       ...negKeywordReviews.map((n) => n.practiceName),
       ...gAdsPacing.map((g) => g.practiceName),
+      ...kwBuildout.map((k) => k.accountName),
       ...blogErrors.map((e) => e.practiceName),
       ...gmbPostErrors.map((e) => e.practiceName),
     ].filter(Boolean))].sort();
@@ -552,7 +661,8 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       replies,
       negKeywordReviews,
       gAdsPacing,
-      summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing),
+      kwBuildout,
+      summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing, kwBuildout),
       practices,
       accounts,
       blogErrors,

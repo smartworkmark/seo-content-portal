@@ -1,5 +1,5 @@
 // Content Types
-export type ContentType = 'blogs' | 'gmb-posts' | 'replies' | 'neg-keywords' | 'g-ads-pacing';
+export type ContentType = 'blogs' | 'gmb-posts' | 'replies' | 'neg-keywords' | 'g-ads-pacing' | 'kw-buildout';
 
 // Feature filter mode: 'include' = show only blogs WITH feature, 'exclude' = show only blogs WITHOUT
 export type FeatureFilterMode = 'include' | 'exclude';
@@ -128,6 +128,49 @@ export interface GAdsPacingRecord {
   campaigns: GAdsPacingCampaign[];
 }
 
+// Keyword Build-Out (proposed keywords for review)
+export type Confidence = 'high' | 'medium' | 'low' | '';
+
+export interface KwBuildoutKeyword {
+  campaignId: string;
+  campaignName: string;
+  adGroupId: string;
+  adGroupName: string;
+  proposedKeyword: string;
+  proposedMatchType: string;   // PHRASE / EXACT / BROAD
+  matchTypeBasis: string;
+  sourceSearchTerm: string;
+  searchTermStatus: string;
+  servedByKeyword: string;     // existing keyword currently catching this traffic (the gap)
+  conversions: number;
+  cost: number;
+  cpa: number;
+  confidence: Confidence;
+  flags: string;               // raw; split on comma for display
+  needsNewAdGroup: boolean;
+  status: string;
+  approval: ApprovalStatus;    // '' | 'Approved' | 'Rejected'
+  proposalId: string;          // unique per-proposal ID (sheet column proposal_id); write-back match key
+}
+
+export interface KwBuildoutRecord {
+  id: string;          // = batchId
+  batchId: string;
+  loggedAt: string;    // date (YYYY-MM-DD)
+  accountId: string;   // Google Ads account ID
+  accountName: string; // practice
+  keywords: KwBuildoutKeyword[];
+}
+
+// One approved keyword's identity, sent to the write-back webhook.
+export interface KwBuildoutApprovedKey {
+  proposal_id: string;
+  campaign_id: string;
+  ad_group_id: string;
+  proposed_keyword: string;
+  proposed_match_type: string;
+}
+
 // GMB Reply
 export interface GmbReply {
   id: string;
@@ -173,6 +216,7 @@ export interface SummaryData {
   replies7d: number;
   negKeywordsTerms7d: number;
   gAdsPacingPending7d: number;
+  kwBuildoutPending7d: number;
 }
 
 // API Response structure
@@ -182,6 +226,7 @@ export interface ContentResponse {
   replies: GmbReply[];
   negKeywordReviews: NegKeywordReview[];
   gAdsPacing: GAdsPacingRecord[];
+  kwBuildout: KwBuildoutRecord[];
   summary: SummaryData;
   practices: string[];
   accounts: string[];

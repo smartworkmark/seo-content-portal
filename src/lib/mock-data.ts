@@ -244,7 +244,7 @@ function calculateSummary(
   replies: GmbReply[],
   negKeywordReviews: NegKeywordReview[],
   gAdsPacing: GAdsPacingRecord[]
-): { blogs7d: number; gmbPosts7d: number; replies7d: number; negKeywordsTerms7d: number; gAdsPacingPending7d: number } {
+): { blogs7d: number; gmbPosts7d: number; replies7d: number; negKeywordsTerms7d: number; gAdsPacingPending7d: number; kwBuildoutPending7d: number } {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   sevenDaysAgo.setHours(0, 0, 0, 0);
@@ -265,6 +265,7 @@ function calculateSummary(
     replies7d,
     negKeywordsTerms7d,
     gAdsPacingPending7d,
+    kwBuildoutPending7d: 0,
   };
 }
 
@@ -551,6 +552,7 @@ export function generateMockData(): ContentResponse {
     replies,
     negKeywordReviews,
     gAdsPacing,
+    kwBuildout: [],
     summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing),
     practices: [...new Set([
       ...blogs.map((b) => b.practiceName),

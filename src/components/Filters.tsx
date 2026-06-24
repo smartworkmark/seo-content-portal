@@ -24,9 +24,12 @@ interface FiltersProps {
   onFeatureToggle?: (feature: string) => void;
   selectedSeverities?: Severity[];
   onSeveritiesChange?: (severities: Severity[]) => void;
+  selectedConfidences?: string[];
+  onConfidencesChange?: (confidences: string[]) => void;
 }
 
 const SEVERITY_OPTIONS: Severity[] = ['Critical', 'Investigate', 'Alert', 'Underpace', 'Auto', 'OK'];
+const CONFIDENCE_OPTIONS: string[] = ['high', 'medium', 'low'];
 
 export function Filters({
   contentType,
@@ -45,6 +48,8 @@ export function Filters({
   onFeatureToggle,
   selectedSeverities = [],
   onSeveritiesChange,
+  selectedConfidences = [],
+  onConfidencesChange,
 }: FiltersProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -52,7 +57,7 @@ export function Filters({
   const filterLabel = isRepliesTab ? 'Account' : 'Practice';
   const filterOptions = isRepliesTab ? accounts : practices;
 
-  const isShortRangeTab = contentType === 'neg-keywords' || contentType === 'g-ads-pacing';
+  const isShortRangeTab = contentType === 'neg-keywords' || contentType === 'g-ads-pacing' || contentType === 'kw-buildout';
   const dateRangeOptions: { value: DateRange; label: string }[] = isShortRangeTab
     ? [
         { value: '1d', label: 'Last 1 Day' },
@@ -127,6 +132,20 @@ export function Filters({
                 options={SEVERITY_OPTIONS}
                 selected={selectedSeverities}
                 onChange={(s) => onSeveritiesChange(s as Severity[])}
+              />
+            </div>
+          )}
+
+          {/* Confidence Filter — Keyword Buildout tab only */}
+          {contentType === 'kw-buildout' && onConfidencesChange && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 whitespace-nowrap">Confidence:</label>
+              <MultiSelectDropdown
+                label="Confidence"
+                pluralLabel="Confidences"
+                options={CONFIDENCE_OPTIONS}
+                selected={selectedConfidences}
+                onChange={onConfidencesChange}
               />
             </div>
           )}
