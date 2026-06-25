@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, ApprovalStatus, BlogError, GmbPostError, ErrorSummaryData } from '@/types';
-import { filterBlogs, filterGmbPosts, filterReplies, filterNegKeywordReviews, filterGAdsPacing, filterBlogErrors, filterGmbPostErrors } from '@/lib/utils';
+import { ContentResponse, DateRange, BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, KwBuildoutRecord, KwBuildoutApprovedKey, ApprovalStatus, BlogError, GmbPostError, ErrorSummaryData } from '@/types';
+import { filterBlogs, filterGmbPosts, filterReplies, filterNegKeywordReviews, filterGAdsPacing, filterKwBuildout, filterBlogErrors, filterGmbPostErrors } from '@/lib/utils';
 import { SummaryData } from '@/types';
 import { needsApproval } from '@/lib/g-ads-pacing';
+import { keywordKey } from '@/lib/kw-buildout';
 
 export interface GAdsPacingFeedbackPayload {
   approvalStatus: ApprovalStatus;
@@ -22,9 +23,11 @@ interface UseContentDataReturn {
   filteredReplies: GmbReply[];
   filteredNegKeywords: NegKeywordReview[];
   filteredGAdsPacing: GAdsPacingRecord[];
-  filterCounts: { blogs: number; gmbPosts: number; replies: number; negKeywords: number; gAdsPacing: number };
+  filteredKwBuildout: KwBuildoutRecord[];
+  filterCounts: { blogs: number; gmbPosts: number; replies: number; negKeywords: number; gAdsPacing: number; kwBuildout: number };
   clientSummary: SummaryData | null;
   submitGAdsPacingFeedback: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
+  submitKwBuildoutFeedback: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[]) => Promise<void>;
   // Error data
   blogErrors: BlogError[];
   gmbPostErrors: GmbPostError[];
@@ -99,6 +102,10 @@ export function useContentData(
     ? filterGAdsPacing(data.gAdsPacing, selectedPractices, selectedDateRange)
     : [];
 
+  const filteredKwBuildout = data
+    ? filterKwBuildout(data.kwBuildout, selectedPractices, selectedDateRange)
+    : [];
+
   // Calculate filtered counts for tab badges
   const filterCounts = {
     blogs: filteredBlogs.length,
@@ -106,6 +113,7 @@ export function useContentData(
     replies: filteredReplies.length,
     negKeywords: filteredNegKeywords.length,
     gAdsPacing: filteredGAdsPacing.length,
+    kwBuildout: filteredKwBuildout.length,
   };
 
   // Compute summary counts client-side (same date parsing as filters, avoids server timezone issues)
@@ -117,12 +125,18 @@ export function useContentData(
     const negKeywordsTerms7d = negKeywords7d.reduce((sum, n) => sum + n.termsReviewed, 0);
     const pacing7d = filterGAdsPacing(data.gAdsPacing, [], '7d');
     const gAdsPacingPending7d = pacing7d.filter((g) => g.approvalStatus === '' && needsApproval(g)).length;
+    const kwBuildout7d = filterKwBuildout(data.kwBuildout, [], '7d');
+    const kwBuildoutPending7d = kwBuildout7d.reduce(
+      (sum, k) => sum + k.keywords.filter((kw) => kw.approval === '').length,
+      0,
+    );
     return {
       blogs7d: blogs7d.length,
       gmbPosts7d: gmbPosts7d.length,
       replies7d: replies7d.length,
       negKeywordsTerms7d,
       gAdsPacingPending7d,
+      kwBuildoutPending7d,
     };
   })() : null;
 
@@ -166,6 +180,58 @@ export function useContentData(
     });
   }, []);
 
+  const submitKwBuildoutFeedback = useCallback(async (
+    record: KwBuildoutRecord,
+    approvedKeys: KwBuildoutApprovedKey[],
+  ) => {
+    const webhookUrl = process.env.NEXT_PUBLIC_KW_FEEDBACK_WEBHOOK_URL;
+    if (!webhookUrl) {
+      throw new Error('NEXT_PUBLIC_KW_FEEDBACK_WEBHOOK_URL is not configured');
+    }
+    if (approvedKeys.length === 0) return;
+
+    const body = {
+      batch_id: record.batchId,
+      account_id: record.accountId,
+      account_name: record.accountName,
+      logged_at: record.loggedAt,
+      approval_status: 'Approved' as const,
+      approved: approvedKeys,
+    };
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`Webhook failed with ${response.status}`);
+    }
+
+    // Optimistically flip the approved keywords to "Approved" so the panel reflects it.
+    const approvedSet = new Set(
+      approvedKeys.map((k) =>
+        keywordKey({ campaignId: k.campaign_id, adGroupId: k.ad_group_id, proposedKeyword: k.proposed_keyword }),
+      ),
+    );
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        kwBuildout: prev.kwBuildout.map((r) =>
+          r.id === record.id
+            ? {
+                ...r,
+                keywords: r.keywords.map((kw) =>
+                  approvedSet.has(keywordKey(kw)) ? { ...kw, approval: 'Approved' as const } : kw,
+                ),
+              }
+            : r,
+        ),
+      };
+    });
+  }, []);
+
   // Error data
   const blogErrors = data?.blogErrors ?? [];
   const gmbPostErrors = data?.gmbPostErrors ?? [];
@@ -195,9 +261,11 @@ export function useContentData(
     filteredReplies,
     filteredNegKeywords,
     filteredGAdsPacing,
+    filteredKwBuildout,
     filterCounts,
     clientSummary,
     submitGAdsPacingFeedback,
+    submitKwBuildoutFeedback,
     // Error data
     blogErrors,
     gmbPostErrors,

@@ -36,6 +36,12 @@ const PacingIcon = () => (
   </svg>
 );
 
+const KwBuildoutIcon = () => (
+  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5a1.99 1.99 0 011.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.99 1.99 0 013 12V7a4 4 0 014-4z" />
+  </svg>
+);
+
 interface SummaryCardsProps {
   data: SummaryData | null;
   isLoading: boolean;
@@ -74,7 +80,7 @@ export function SummaryCards({ data, isLoading, isErrorMode = false, errorSummar
   if (!data) return null;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
       <SummaryCard
         title="Blogs"
         count={data.blogs7d}
@@ -103,6 +109,12 @@ export function SummaryCards({ data, isLoading, isErrorMode = false, errorSummar
         title="Pacing Reviews Pending"
         count={data.gAdsPacingPending7d}
         icon={<PacingIcon />}
+        subtitle="Last 7 days"
+      />
+      <SummaryCard
+        title="Keyword Proposals"
+        count={data.kwBuildoutPending7d}
+        icon={<KwBuildoutIcon />}
         subtitle="Last 7 days"
       />
     </div>

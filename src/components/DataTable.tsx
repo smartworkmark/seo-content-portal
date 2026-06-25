@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
-import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
+import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, KwBuildoutRecord, KwBuildoutApprovedKey, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
 import { SEVERITY_STYLES, actionDotCounts, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
+import { confidenceMix, reviewCounts, totalConversions } from '@/lib/kw-buildout';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
+import { KwBuildoutDetailPanel } from './KwBuildoutDetailPanel';
 import type { GAdsPacingFeedbackPayload } from '@/hooks/useContentData';
 import { TableSkeleton } from './SkeletonLoader';
 
@@ -22,9 +24,11 @@ interface DataTableProps {
   gmbPostErrors?: GmbPostError[];
   negKeywordReviews?: NegKeywordReview[];
   gAdsPacing?: GAdsPacingRecord[];
+  kwBuildout?: KwBuildoutRecord[];
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
   onSubmitGAdsFeedback?: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
+  onSubmitKwFeedback?: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[]) => Promise<void>;
 }
 
 // Inline feature icon with tooltip and click-to-filter
@@ -202,31 +206,39 @@ export function DataTable({
   gmbPostErrors = [],
   negKeywordReviews = [],
   gAdsPacing = [],
+  kwBuildout = [],
   featureFilters = {},
   onFeatureToggle,
   onSubmitGAdsFeedback,
+  onSubmitKwFeedback,
 }: DataTableProps) {
   const [sort, setSort] = useState<SortState>({ column: 'date', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedReply, setExpandedReply] = useState<string | null>(null);
   const [expandedBlogRow, setExpandedBlogRow] = useState<string | null>(null);
   const [expandedGAdsRow, setExpandedGAdsRow] = useState<string | null>(null);
+  const [expandedKwRow, setExpandedKwRow] = useState<string | null>(null);
 
   // Reset page when content type or error mode changes
   useEffect(() => {
     setCurrentPage(1);
     setExpandedBlogRow(null);
     setExpandedGAdsRow(null);
+    setExpandedKwRow(null);
     // G Ads Pacing's date field is `runDate`, not the shared `date` default — set it explicitly so newest stays on top.
     if (contentType === 'g-ads-pacing') {
       setSort({ column: 'runDate', direction: 'desc' });
+    }
+    // Keyword Buildout sorts by `loggedAt`, not the shared `date` default.
+    if (contentType === 'kw-buildout') {
+      setSort({ column: 'loggedAt', direction: 'desc' });
     }
   }, [contentType, isErrorMode]);
 
   // Reset page when data length changes (e.g. feature filters applied that reduce total pages)
   useEffect(() => {
     setCurrentPage(1);
-  }, [blogs.length, gmbPosts.length, replies.length, negKeywordReviews.length, gAdsPacing.length, blogErrors.length, gmbPostErrors.length]);
+  }, [blogs.length, gmbPosts.length, replies.length, negKeywordReviews.length, gAdsPacing.length, kwBuildout.length, blogErrors.length, gmbPostErrors.length]);
 
   const handleSort = (column: string) => {
     setSort((prev) => ({
@@ -964,6 +976,131 @@ export function DataTable({
                         </tr>
                         {isExpanded && onSubmitGAdsFeedback && (
                           <GAdsPacingDetailPanel record={record} colSpan={9} onSubmit={onSubmitGAdsFeedback} />
+                        )}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={sortedData.length}
+          onPageChange={setCurrentPage}
+        />
+      </div>
+    );
+  }
+
+  // Render Keyword Buildout Table
+  if (contentType === 'kw-buildout') {
+    const sortedData = sortData(kwBuildout, sort.column as keyof KwBuildoutRecord, sort.direction);
+    const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
+    const paginatedData = sortedData.slice(
+      (currentPage - 1) * ITEMS_PER_PAGE,
+      currentPage * ITEMS_PER_PAGE
+    );
+
+    return (
+      <div>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="max-h-[640px] overflow-y-auto overflow-x-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10 bg-gray-50">
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="w-8 pl-3 py-3" />
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                    <button onClick={() => handleSort('loggedAt')} className="flex items-center gap-1 hover:text-gray-900">
+                      Date <SortIcon column="loggedAt" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('accountName')} className="flex items-center gap-1 hover:text-gray-900">
+                      Practice <SortIcon column="accountName" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Keywords
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Conv
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Confidence
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Review
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginatedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-16 text-center text-sm text-gray-500">
+                      No keyword proposals found for the selected filters.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedData.map((record) => {
+                    const isExpanded = expandedKwRow === record.id;
+                    const counts = reviewCounts(record);
+                    const mix = confidenceMix(record);
+                    const reviewed = counts.pending === 0;
+                    return (
+                      <Fragment key={record.id}>
+                        <tr
+                          onClick={() => setExpandedKwRow(isExpanded ? null : record.id)}
+                          className={`border-b border-gray-100 transition-colors cursor-pointer ${isExpanded ? 'bg-slate-50' : 'hover:bg-gray-50'} ${reviewed && !isExpanded ? 'opacity-60' : ''}`}
+                        >
+                          <td className="w-8 pl-3 py-3">
+                            <span
+                              className="inline-flex items-center justify-center text-gray-400 transition-transform duration-150"
+                              style={{ fontSize: 10, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', display: 'inline-block' }}
+                            >
+                              ▸
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap font-mono">
+                            {fmtCompactDate(record.loggedAt)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                            {record.accountName}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right whitespace-nowrap font-medium">
+                            {record.keywords.length}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 text-right whitespace-nowrap">
+                            {totalConversions(record)}
+                          </td>
+                          <td className="px-4 py-3 text-sm whitespace-nowrap">
+                            <span className="inline-flex items-center gap-2 text-xs font-medium">
+                              {mix.high > 0 && <span className="text-emerald-700">{mix.high} high</span>}
+                              {mix.medium > 0 && <span className="text-amber-700">{mix.medium} med</span>}
+                              {mix.low > 0 && <span className="text-slate-500">{mix.low} low</span>}
+                              {mix.high === 0 && mix.medium === 0 && mix.low === 0 && (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm whitespace-nowrap">
+                            {reviewed ? (
+                              <span className="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-2 py-0.5 rounded-full text-xs font-semibold">
+                                Reviewed
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                {counts.pending > 0 && <ActionDot color="#d97706" count={counts.pending} label="Pending" />}
+                                {counts.approved > 0 && <ActionDot color="#059669" count={counts.approved} label="Approved" />}
+                                {counts.rejected > 0 && <ActionDot color="#e11d48" count={counts.rejected} label="Rejected" />}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && onSubmitKwFeedback && (
+                          <KwBuildoutDetailPanel record={record} colSpan={7} onSubmit={onSubmitKwFeedback} />
                         )}
                       </Fragment>
                     );

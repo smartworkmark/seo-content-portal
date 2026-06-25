@@ -1,4 +1,4 @@
-import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, NegKeywordReview, GAdsPacingRecord, DateRange } from '@/types';
+import { BlogPost, GmbPost, GmbReply, BlogError, GmbPostError, NegKeywordReview, GAdsPacingRecord, KwBuildoutRecord, DateRange } from '@/types';
 
 // Format date for display
 export function formatDate(dateString: string): string {
@@ -185,6 +185,19 @@ export function filterGAdsPacing(
   return records.filter((record) => {
     const practiceMatch = practices.length === 0 || practices.includes(record.practiceName);
     const dateMatch = isWithinDateRange(record.runDate, dateRange);
+    return practiceMatch && dateMatch;
+  });
+}
+
+// Filter Keyword Build-Out records by practice (accountName) and logged date
+export function filterKwBuildout(
+  records: KwBuildoutRecord[],
+  practices: string[],
+  dateRange: DateRange
+): KwBuildoutRecord[] {
+  return records.filter((record) => {
+    const practiceMatch = practices.length === 0 || practices.includes(record.accountName);
+    const dateMatch = isWithinDateRange(record.loggedAt, dateRange);
     return practiceMatch && dateMatch;
   });
 }

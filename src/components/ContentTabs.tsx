@@ -11,6 +11,7 @@ interface ContentTabsProps {
     replies: number;
     negKeywords: number;
     gAdsPacing: number;
+    kwBuildout: number;
   };
   isErrorMode?: boolean;
   errorCounts?: {
@@ -38,6 +39,7 @@ export function ContentTabs({
         { id: 'replies' as const, label: 'Replies', count: counts.replies },
         { id: 'neg-keywords' as const, label: 'Neg. Keywords', count: counts.negKeywords },
         { id: 'g-ads-pacing' as const, label: 'G Ads Pacing', count: counts.gAdsPacing },
+        { id: 'kw-buildout' as const, label: 'Keyword Buildout', count: counts.kwBuildout },
       ];
 
   return (

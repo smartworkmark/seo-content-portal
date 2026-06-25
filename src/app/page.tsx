@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview, Severity } from '@/types';
+import { flagsList } from '@/lib/kw-buildout';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
 import { useSavedFilters } from '@/hooks/useSavedFilters';
@@ -19,6 +20,7 @@ const SHORT_RANGES: DateRange[] = ['1d', '3d', '7d'];
 const SHORT_RANGE_TABS: ReadonlySet<ContentType | ErrorContentType> = new Set([
   'neg-keywords',
   'g-ads-pacing',
+  'kw-buildout',
 ]);
 
 function mapDateRangeForTab(
@@ -41,6 +43,7 @@ export default function Dashboard() {
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange>('7d');
   const [featureFilters, setFeatureFilters] = useState<FeatureFilters>({});
   const [selectedSeverities, setSelectedSeverities] = useState<Severity[]>([]);
+  const [selectedConfidences, setSelectedConfidences] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [showErrors, setShowErrors] = useState(false);
@@ -64,6 +67,7 @@ export default function Dashboard() {
     filteredReplies,
     filteredNegKeywords,
     filteredGAdsPacing,
+    filteredKwBuildout,
     filterCounts,
     filteredBlogErrors,
     filteredGmbPostErrors,
@@ -71,6 +75,7 @@ export default function Dashboard() {
     errorSummary,
     clientSummary,
     submitGAdsPacingFeedback,
+    submitKwBuildoutFeedback,
   } = useContentData(selectedPractices, selectedDateRange);
 
   // Handle error mode toggle
@@ -131,6 +136,38 @@ export default function Dashboard() {
         { key: 'reviewedBy', label: 'Reviewed By' },
         { key: 'notes', label: 'Notes' },
       ]);
+    } else if (activeTab === 'kw-buildout') {
+      // Flatten to keyword-level rows so each proposed keyword is its own CSV line.
+      const flat = confidenceFilteredKwBuildout.flatMap((record) =>
+        record.keywords.map((k) => ({
+          loggedAt: record.loggedAt,
+          accountName: record.accountName,
+          proposedKeyword: k.proposedKeyword,
+          proposedMatchType: k.proposedMatchType,
+          adGroupName: k.adGroupName,
+          needsNewAdGroup: k.needsNewAdGroup ? 'TRUE' : 'FALSE',
+          servedByKeyword: k.servedByKeyword,
+          conversions: k.conversions,
+          cpa: k.cpa,
+          confidence: k.confidence,
+          flags: flagsList(k.flags).join('; '),
+          approval: k.approval,
+        }))
+      );
+      exportToCSV(flat, 'kw-buildout', [
+        { key: 'loggedAt', label: 'Date' },
+        { key: 'accountName', label: 'Practice' },
+        { key: 'proposedKeyword', label: 'Proposed Keyword' },
+        { key: 'proposedMatchType', label: 'Match Type' },
+        { key: 'adGroupName', label: 'Ad Group' },
+        { key: 'needsNewAdGroup', label: 'Needs New Ad Group' },
+        { key: 'servedByKeyword', label: 'Currently Serving' },
+        { key: 'conversions', label: 'Conversions' },
+        { key: 'cpa', label: 'CPA' },
+        { key: 'confidence', label: 'Confidence' },
+        { key: 'flags', label: 'Flags' },
+        { key: 'approval', label: 'Approval' },
+      ]);
     } else {
       exportToCSV(filteredReplies, 'replies', [
         { key: 'dateTime', label: 'Date/Time' },
@@ -158,6 +195,12 @@ export default function Dashboard() {
     ? filteredGAdsPacing
     : filteredGAdsPacing.filter((r) => selectedSeverities.includes(r.severity));
 
+  // Confidence filter — applied as a final pass on top of practice+date filtered records.
+  // A batch is kept if any of its keywords match a selected confidence. Empty = show all.
+  const confidenceFilteredKwBuildout = selectedConfidences.length === 0
+    ? filteredKwBuildout
+    : filteredKwBuildout.filter((r) => r.keywords.some((k) => selectedConfidences.includes(k.confidence)));
+
   // Cycle: off → include → exclude → off
   const handleFeatureToggle = (feature: string) => {
     setFeatureFilters((prev) => {
@@ -180,6 +223,7 @@ export default function Dashboard() {
     setSelectedDateRange(mappedRange);
     if (tab !== 'blogs') setFeatureFilters({});
     if (tab !== 'g-ads-pacing') setSelectedSeverities([]);
+    if (tab !== 'kw-buildout') setSelectedConfidences([]);
   };
 
   // Apply a saved filter
@@ -350,6 +394,8 @@ export default function Dashboard() {
               onFeatureToggle={handleFeatureToggle}
               selectedSeverities={selectedSeverities}
               onSeveritiesChange={setSelectedSeverities}
+              selectedConfidences={selectedConfidences}
+              onConfidencesChange={setSelectedConfidences}
             />
           </div>
 
@@ -387,6 +433,7 @@ export default function Dashboard() {
             replies={filteredReplies}
             negKeywordReviews={filteredNegKeywords}
             gAdsPacing={severityFilteredGAdsPacing}
+            kwBuildout={confidenceFilteredKwBuildout}
             isLoading={isLoading}
             isErrorMode={showErrors}
             blogErrors={filteredBlogErrors}
@@ -394,6 +441,7 @@ export default function Dashboard() {
             featureFilters={featureFilters}
             onFeatureToggle={handleFeatureToggle}
             onSubmitGAdsFeedback={submitGAdsPacingFeedback}
+            onSubmitKwFeedback={submitKwBuildoutFeedback}
           />
         </section>
       </main>
