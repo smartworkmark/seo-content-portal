@@ -159,6 +159,7 @@ export interface KwBuildoutRecord {
   loggedAt: string;    // date (YYYY-MM-DD)
   accountId: string;   // Google Ads account ID
   accountName: string; // practice
+  notes: string;
   keywords: KwBuildoutKeyword[];
 }
 

@@ -28,7 +28,7 @@ interface DataTableProps {
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
   onSubmitGAdsFeedback?: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
-  onSubmitKwFeedback?: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[]) => Promise<void>;
+  onSubmitKwFeedback?: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[], notes: string) => Promise<void>;
 }
 
 // Inline feature icon with tooltip and click-to-filter

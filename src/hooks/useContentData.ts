@@ -27,7 +27,7 @@ interface UseContentDataReturn {
   filterCounts: { blogs: number; gmbPosts: number; replies: number; negKeywords: number; gAdsPacing: number; kwBuildout: number };
   clientSummary: SummaryData | null;
   submitGAdsPacingFeedback: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
-  submitKwBuildoutFeedback: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[]) => Promise<void>;
+  submitKwBuildoutFeedback: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[], notes: string) => Promise<void>;
   // Error data
   blogErrors: BlogError[];
   gmbPostErrors: GmbPostError[];
@@ -183,12 +183,13 @@ export function useContentData(
   const submitKwBuildoutFeedback = useCallback(async (
     record: KwBuildoutRecord,
     approvedKeys: KwBuildoutApprovedKey[],
+    notes: string,
   ) => {
     const webhookUrl = process.env.NEXT_PUBLIC_KW_FEEDBACK_WEBHOOK_URL;
     if (!webhookUrl) {
       throw new Error('NEXT_PUBLIC_KW_FEEDBACK_WEBHOOK_URL is not configured');
     }
-    if (approvedKeys.length === 0) return;
+    if (approvedKeys.length === 0 && !notes.trim()) return;
 
     const body = {
       batch_id: record.batchId,
@@ -196,6 +197,7 @@ export function useContentData(
       account_name: record.accountName,
       logged_at: record.loggedAt,
       approval_status: 'Approved' as const,
+      notes,
       approved: approvedKeys,
     };
 
