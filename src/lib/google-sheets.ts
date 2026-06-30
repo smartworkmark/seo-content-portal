@@ -490,6 +490,7 @@ function parseKwBuildout(rows: string[][]): KwBuildoutRecord[] {
   const batchIdIdx = idx('batch_id');
   const approvalIdx = idx('approval');
   const proposalIdIdx = idx('proposal_id');
+  const kwNotesIdx = idx('notes');
 
   const groups = new Map<string, KwBuildoutRecord>();
 
@@ -531,6 +532,7 @@ function parseKwBuildout(rows: string[][]): KwBuildoutRecord[] {
       if (!existing.accountId && accountId) existing.accountId = accountId;
       if (!existing.accountName && accountNameIdx >= 0) existing.accountName = row[accountNameIdx] || '';
       if (!existing.loggedAt && loggedAt) existing.loggedAt = loggedAt;
+      if (!existing.notes && kwNotesIdx >= 0) existing.notes = row[kwNotesIdx] || '';
     } else {
       groups.set(batchId, {
         id: batchId,
@@ -538,6 +540,7 @@ function parseKwBuildout(rows: string[][]): KwBuildoutRecord[] {
         loggedAt,
         accountId,
         accountName: accountNameIdx >= 0 ? (row[accountNameIdx] || '') : '',
+        notes: kwNotesIdx >= 0 ? (row[kwNotesIdx] || '') : '',
         keywords: [keyword],
       });
     }

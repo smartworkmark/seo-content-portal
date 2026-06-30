@@ -13,7 +13,7 @@ import {
 interface KwBuildoutDetailPanelProps {
   record: KwBuildoutRecord;
   colSpan: number;
-  onSubmit: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[]) => Promise<void>;
+  onSubmit: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[], notes: string) => Promise<void>;
 }
 
 function MatchTypePill({ matchType }: { matchType: string }) {
@@ -42,6 +42,7 @@ function ConfidenceCell({ keyword }: { keyword: KwBuildoutKeyword }) {
 export function KwBuildoutDetailPanel({ record, colSpan, onSubmit }: KwBuildoutDetailPanelProps) {
   // Checkbox selection of pending keywords, keyed by their stable identity.
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [notes, setNotes] = useState<string>(record.notes);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -62,7 +63,7 @@ export function KwBuildoutDetailPanel({ record, colSpan, onSubmit }: KwBuildoutD
     setChecked(allPendingChecked ? new Set() : new Set(pendingKeywords.map((k) => keywordKey(k))));
   };
 
-  const canSubmit = checked.size > 0 && !submitting;
+  const canSubmit = (checked.size > 0 || notes.trim().length > 0) && !submitting;
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -78,8 +79,9 @@ export function KwBuildoutDetailPanel({ record, colSpan, onSubmit }: KwBuildoutD
           proposed_keyword: k.proposedKeyword,
           proposed_match_type: k.proposedMatchType,
         }));
-      await onSubmit(record, approvedKeys);
+      await onSubmit(record, approvedKeys, notes.trim());
       setChecked(new Set());
+      setNotes('');
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Failed to submit');
     } finally {
@@ -206,19 +208,33 @@ export function KwBuildoutDetailPanel({ record, colSpan, onSubmit }: KwBuildoutD
               </table>
             </div>
 
-            {/* Approve action */}
+            {/* Notes + Approve action */}
             {pendingKeywords.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, marginTop: 14 }}>
-                {submitError && <span style={{ fontSize: 12, color: '#dc2626' }}>{submitError}</span>}
-                <button
-                  onClick={handleSubmit}
-                  disabled={!canSubmit}
-                  className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${
-                    canSubmit ? 'bg-indigo-900 hover:bg-indigo-950' : 'bg-gray-300 cursor-not-allowed'
-                  }`}
-                >
-                  {submitting ? 'Submitting…' : `Approve selected (${checked.size})`}
-                </button>
+              <div style={{ marginTop: 14 }}>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                    Notes (optional)
+                  </label>
+                  <textarea
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. Hold off on brand terms — client reviewing separately."
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
+                  {submitError && <span style={{ fontSize: 12, color: '#dc2626' }}>{submitError}</span>}
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!canSubmit}
+                    className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${
+                      canSubmit ? 'bg-indigo-900 hover:bg-indigo-950' : 'bg-gray-300 cursor-not-allowed'
+                    }`}
+                  >
+                    {submitting ? 'Submitting…' : `Approve selected (${checked.size})`}
+                  </button>
+                </div>
               </div>
             )}
           </div>

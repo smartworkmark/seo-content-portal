@@ -20,7 +20,6 @@ const SHORT_RANGES: DateRange[] = ['1d', '3d', '7d'];
 const SHORT_RANGE_TABS: ReadonlySet<ContentType | ErrorContentType> = new Set([
   'neg-keywords',
   'g-ads-pacing',
-  'kw-buildout',
 ]);
 
 function mapDateRangeForTab(
