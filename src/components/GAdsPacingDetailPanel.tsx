@@ -1,9 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import type { ApprovalStatus, GAdsPacingCampaign, GAdsPacingRecord } from '@/types';
-import type { GAdsPacingFeedbackPayload } from '@/hooks/useContentData';
+import type { GAdsPacingFeedbackPayload, BudgetAllocationPayload } from '@/hooks/useContentData';
+import {
+  allocationSummary,
+  derivePercent,
+  dollarsFromPercent,
+  eligibleCampaigns,
+  isSaveEnabled,
+} from '@/lib/budget-allocation';
 import {
   DOW_FLAG_LABELS,
   RECOMMENDATION_LABELS,
@@ -33,6 +40,7 @@ interface GAdsPacingDetailPanelProps {
   record: GAdsPacingRecord;
   colSpan: number;
   onSubmit: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
+  onSubmitBudget: (record: GAdsPacingRecord, payload: BudgetAllocationPayload) => Promise<void>;
 }
 
 // Conflict warning icon. Renders the tooltip via portal because the campaign
@@ -134,7 +142,347 @@ function statusPillStyle(label: string): { pill: string; text: string } {
   }
 }
 
-export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingDetailPanelProps) {
+const labelStyle: CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#64748b',
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  marginBottom: 6,
+};
+
+const cardStyle: CSSProperties = {
+  background: '#fff',
+  borderRadius: 10,
+  border: '1px solid #e2e8f0',
+  padding: '14px 16px',
+};
+
+const sectionHeadingStyle: CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#475569',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+};
+
+function fmtPercentDisplay(pct: number): string {
+  if (!Number.isFinite(pct)) return '';
+  return String(Math.round(pct * 10) / 10);
+}
+
+// Campaign-level budget allocation card. Three states: unmanaged (offer to set),
+// managed view (read-only split, with a revert banner when the runtime effective mode
+// fell back to account-level), and edit (tandem $/% inputs, soft divergence warning).
+function BudgetAllocationCard({
+  record,
+  onSubmitBudget,
+}: {
+  record: GAdsPacingRecord;
+  onSubmitBudget: (record: GAdsPacingRecord, payload: BudgetAllocationPayload) => Promise<void>;
+}) {
+  const accountBudget = record.monthlyBudget;
+  const eligible = eligibleCampaigns(record.campaigns);
+  const managed = record.budgetConfig?.managed ?? false;
+
+  const [editing, setEditing] = useState(false);
+  // Draft dollar amounts keyed by campaignId (raw string so the field can be cleared).
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [updatedBy, setUpdatedBy] = useState(record.budgetConfig?.updatedBy ?? '');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedNote, setSavedNote] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+
+  const startEditing = () => {
+    const seed: Record<string, string> = {};
+    eligible.forEach((c) => {
+      seed[c.campaignId] = c.budgetDollars != null ? String(Math.round(c.budgetDollars)) : '';
+    });
+    setDraft(seed);
+    setUpdatedBy(record.budgetConfig?.updatedBy ?? '');
+    setError(null);
+    setSavedNote(false);
+    setConfirmingClear(false);
+    setEditing(true);
+  };
+
+  const setDollars = (campaignId: string, raw: string) => {
+    setDraft((prev) => ({ ...prev, [campaignId]: raw }));
+  };
+  const setFromPercent = (campaignId: string, raw: string) => {
+    const pct = parseFloat(raw);
+    const dollars = Number.isFinite(pct) ? dollarsFromPercent(pct, accountBudget) : NaN;
+    setDraft((prev) => ({ ...prev, [campaignId]: Number.isFinite(dollars) ? String(dollars) : '' }));
+  };
+
+  const eligibleDollars = eligible.map((c) => parseFloat(draft[c.campaignId] ?? ''));
+  const summary = allocationSummary(eligibleDollars, accountBudget);
+  const canSave = isSaveEnabled(eligibleDollars) && updatedBy.trim().length > 0 && !submitting;
+
+  const submit = async (isManaged: boolean) => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const campaigns = isManaged
+        ? eligible.map((c) => ({
+            campaign_id: c.campaignId,
+            campaign_name: c.campaignName,
+            budget_dollars: parseFloat(draft[c.campaignId] ?? '') || 0,
+          }))
+        : [];
+      await onSubmitBudget(record, { managed: isManaged, updatedBy: updatedBy.trim(), campaigns });
+      setEditing(false);
+      setConfirmingClear(false);
+      setSavedNote(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save budgets');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div style={cardStyle}>
+      <div className="mb-2.5 flex items-center justify-between gap-3">
+        <div style={sectionHeadingStyle}>Budget Allocation</div>
+        {accountBudget > 0 && (
+          <div className="text-xs text-slate-500">
+            Account budget <span className="font-semibold text-slate-700">{fmtMoney(accountBudget)}/mo</span>
+          </div>
+        )}
+      </div>
+
+      {/* Reverted-to-account-level banner (managed intent, runtime fell back). */}
+      {!editing && managed && record.effectiveMode === 'account' && (
+        <div className="mb-3 rounded-lg bg-amber-50 px-4 py-3 ring-1 ring-amber-200">
+          <div className="text-sm font-semibold text-amber-900">Running at the account level</div>
+          {record.statusReason && (
+            <div className="mt-1 text-xs leading-relaxed text-amber-900/90">{record.statusReason}</div>
+          )}
+        </div>
+      )}
+
+      {savedNote && !editing && (
+        <div className="mb-3 rounded-lg bg-sky-50 px-4 py-3 ring-1 ring-sky-200">
+          <div className="text-xs text-sky-800">Saved — the pacing engine will re-evaluate on its next run.</div>
+        </div>
+      )}
+
+      {!editing ? (
+        managed ? (
+          <>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ color: '#64748b', textAlign: 'left' }}>
+                    <th style={{ padding: '6px 8px', fontWeight: 600 }}>Campaign</th>
+                    <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Budget /mo</th>
+                    <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>% of account</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {record.campaigns.map((c, i) => (
+                    <tr key={c.campaignId || i} style={{ borderTop: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>
+                        {c.campaignName || '(unnamed)'}
+                        {c.sharedBudget && (
+                          <span className="ml-2 text-[11px] font-normal text-slate-400">shared budget</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: '#334155' }}>
+                        {c.sharedBudget || c.budgetDollars == null ? (
+                          <span className="text-xs text-slate-400">—</span>
+                        ) : (
+                          fmtMoney(c.budgetDollars)
+                        )}
+                      </td>
+                      <td style={{ padding: '8px', textAlign: 'right', color: '#334155' }}>
+                        {c.sharedBudget || c.budgetDollars == null || !(accountBudget > 0) ? (
+                          <span className="text-xs text-slate-400">—</span>
+                        ) : (
+                          `${fmtPercentDisplay(derivePercent(c.budgetDollars, accountBudget))}%`
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={startEditing}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Edit allocation
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm text-slate-500">
+              No campaign budgets set — pacing runs at the account level.
+            </span>
+            {eligible.length > 0 ? (
+              <button
+                onClick={startEditing}
+                className="rounded-md bg-indigo-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-950"
+              >
+                Set campaign budgets
+              </button>
+            ) : (
+              <span className="text-xs text-slate-400">All campaigns are on shared budgets — not eligible.</span>
+            )}
+          </div>
+        )
+      ) : (
+        // Edit mode
+        <>
+          {!(accountBudget > 0) && (
+            <div className="mb-3 text-xs text-amber-700">
+              Account budget unavailable from HubSpot — percentages can&apos;t be shown. You can still set dollar amounts.
+            </div>
+          )}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ color: '#64748b', textAlign: 'left' }}>
+                  <th style={{ padding: '6px 8px', fontWeight: 600 }}>Campaign</th>
+                  <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>Budget /mo ($)</th>
+                  <th style={{ padding: '6px 8px', fontWeight: 600, textAlign: 'right' }}>% of account</th>
+                </tr>
+              </thead>
+              <tbody>
+                {record.campaigns.map((c, i) => {
+                  const shared = c.sharedBudget;
+                  const dollarsStr = draft[c.campaignId] ?? '';
+                  const dollarsNum = parseFloat(dollarsStr);
+                  const pctVal = Number.isFinite(dollarsNum) ? derivePercent(dollarsNum, accountBudget) : NaN;
+                  return (
+                    <tr key={c.campaignId || i} style={{ borderTop: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>
+                        {c.campaignName || '(unnamed)'}
+                        {shared && (
+                          <span className="ml-2 text-[11px] font-normal text-slate-400">
+                            shared budget — set at the Google Ads budget level
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px', textAlign: 'right' }}>
+                        <input
+                          type="number"
+                          min={0}
+                          disabled={shared}
+                          value={shared ? '' : dollarsStr}
+                          onChange={(e) => setDollars(c.campaignId, e.target.value)}
+                          placeholder={shared ? '—' : '0'}
+                          className="w-28 px-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
+                        />
+                      </td>
+                      <td style={{ padding: '8px', textAlign: 'right' }}>
+                        <input
+                          type="number"
+                          min={0}
+                          disabled={shared || !(accountBudget > 0)}
+                          value={shared || !Number.isFinite(pctVal) ? '' : fmtPercentDisplay(pctVal)}
+                          onChange={(e) => setFromPercent(c.campaignId, e.target.value)}
+                          placeholder={shared ? '—' : '0'}
+                          className="w-20 px-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Allocation total + soft divergence warning */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs text-slate-600">
+              Allocated <span className="font-semibold text-slate-800">{fmtMoney(summary.totalDollars)}</span>
+              {accountBudget > 0 && (
+                <>
+                  {' '}of {fmtMoney(accountBudget)} ({fmtPercentDisplay(summary.totalPercent)}%)
+                </>
+              )}
+            </div>
+            {summary.warning && (
+              <div className="text-xs font-medium text-amber-700">⚠ {summary.warning}</div>
+            )}
+          </div>
+
+          <div className="mt-3" style={{ maxWidth: 260 }}>
+            <label style={labelStyle}>Updated by</label>
+            <input
+              type="text"
+              value={updatedBy}
+              onChange={(e) => setUpdatedBy(e.target.value)}
+              placeholder="Your name"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            {error && <span className="mr-auto text-xs text-red-600">{error}</span>}
+            {!canSave && !error && (
+              <span className="mr-auto text-xs text-slate-400">
+                Assign every eligible campaign a budget and add your name to save.
+              </span>
+            )}
+            {managed &&
+              (confirmingClear ? (
+                <>
+                  <span className="text-xs text-slate-500">Clear all budgets?</span>
+                  <button
+                    onClick={() => submit(false)}
+                    disabled={submitting || updatedBy.trim().length === 0}
+                    className="rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-rose-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  >
+                    Confirm clear
+                  </button>
+                  <button
+                    onClick={() => setConfirmingClear(false)}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Keep
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => setConfirmingClear(true)}
+                  className="rounded-md border border-rose-300 px-3 py-1.5 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                >
+                  Clear budgets
+                </button>
+              ))}
+            <button
+              onClick={() => {
+                setEditing(false);
+                setConfirmingClear(false);
+              }}
+              className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => submit(true)}
+              disabled={!canSave}
+              className={`rounded-md px-4 py-2 text-sm font-medium text-white transition-colors ${
+                canSave ? 'bg-indigo-900 hover:bg-indigo-950' : 'bg-gray-300 cursor-not-allowed'
+              }`}
+            >
+              {submitting ? 'Saving…' : 'Save budgets'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudget }: GAdsPacingDetailPanelProps) {
   const [decision, setDecision] = useState<ApprovalStatus>(record.approvalStatus);
   const [reviewedBy, setReviewedBy] = useState(record.reviewedBy);
   const [notes, setNotes] = useState(record.notes);
@@ -212,6 +560,9 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit }: GAdsPacingD
               }
             />
           )}
+
+          {/* Budget Allocation (campaign-level split) */}
+          <BudgetAllocationCard record={record} onSubmitBudget={onSubmitBudget} />
 
           {/* Campaign Breakdown */}
           <div

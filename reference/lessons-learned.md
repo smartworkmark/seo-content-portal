@@ -2,6 +2,23 @@
 
 ---
 
+## 2026-07-08 — "NEXT_PUBLIC_… is not configured" in production (env var missing from Vercel)
+
+### Symptoms
+Submitting a Keyword Buildout approval on the **deployed (Vercel) UI** threw `NEXT_PUBLIC_KW_FEEDBACK_WEBHOOK_URL is not configured` (the `if (!webhookUrl)` guard in `useContentData.ts`). The error appeared with **nothing in the Network or Console tabs** on button press — no fetch fired at all. A hard refresh did not help. The same var was present in `.env.local` and worked fine on `localhost`.
+
+### Root Cause
+`.env.local` is **local-dev only** — it is never uploaded to Vercel. The var was never added to the Vercel project's Environment Variables, so the production build inlined `undefined`. Because `NEXT_PUBLIC_*` values are **string-inlined at build time**, the guard threw before reaching `fetch()`, which is why no network request appeared.
+
+### Fix
+1. Add the var in Vercel (Settings → Environment Variables, or `vercel env add NEXT_PUBLIC_KW_FEEDBACK_WEBHOOK_URL production`), for Production **and** Preview.
+2. **Redeploy** (`vercel --prod` or Deployments → Redeploy). Saving the var alone does nothing to existing builds — the value only gets baked in on the next build.
+
+### Rule to remember
+**Any time a new `NEXT_PUBLIC_*` (or any) env var is added to `.env.local`, it MUST also be added to Vercel and the site redeployed — otherwise it works locally and silently breaks in production.** When adding a new env-gated feature, add setting the Vercel var to the checklist, or ask Mark to do it together. Quick prod-vs-local check: if a feature works on `localhost:3000` but errors with "…is not configured" on the live site and fires no network request, the Vercel env var is missing.
+
+---
+
 ## 2026-06-15 — G Ads Pacing: recommendation label contradicts the applied budget
 
 ### Symptoms

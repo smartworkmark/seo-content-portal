@@ -388,6 +388,11 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       finalDailyBudget: toNumOrNull(cell(row, finalDailyIdx)),
       autoDecreasePromoted: toBool(cell(row, autoDecreaseIdx)),
       appliedDecreasePercent: toNumOrNull(cell(row, appliedDecreaseIdx)),
+      // Budget allocation defaults — populated by applyBudgetConfigs after parsing.
+      budgetDollars: null,
+      sharedBudget: false,
+      effectiveMode: null,
+      statusReason: '',
     };
 
     const existing = groups.get(key);
@@ -439,11 +444,159 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
         dowMultiplier: toNumOrNull(cell(row, dowMultiplierIdx)),
         dowFlags: cell(row, dowFlagsIdx) || '',
         campaigns: [campaign],
+        // Budget allocation defaults — populated by applyBudgetConfigs after parsing.
+        budgetConfig: null,
+        effectiveMode: 'account',
+        statusReason: '',
       });
     }
   });
 
   return Array.from(groups.values());
+}
+
+// ---- Campaign-level budget allocation (config in, runtime status out) ----
+
+interface BudgetConfigEntry {
+  managed: boolean;
+  updatedBy: string;
+  updatedAt: string;
+  campaigns: Map<string, number>; // campaignId -> budget_dollars
+}
+
+interface BudgetStatusEntry {
+  sharedBudget: boolean;
+  effectiveMode: 'account' | 'campaign' | null;
+  statusReason: string;
+  lastEvaluated: string;
+}
+
+// Frontend-owned "Campaign Budgets" sheet: one row per campaign, account fields repeated.
+// Grouped by google_ads_id (account-scoped, spans run dates).
+function parseBudgets(rows: string[][]): Map<string, BudgetConfigEntry> {
+  const map = new Map<string, BudgetConfigEntry>();
+  if (rows.length <= 1) return map;
+
+  const headers = rows[0].map((h) => h.toLowerCase().trim());
+  const idx = (name: string) => headers.findIndex((h) => h === name);
+  const googleAdsIdx = idx('google_ads_id');
+  const campaignIdIdx = idx('campaign_id');
+  const dollarsIdx = idx('budget_dollars');
+  const managedIdx = idx('managed');
+  const updatedByIdx = idx('updated_by');
+  const updatedAtIdx = idx('updated_at');
+  const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
+
+  rows.slice(1).forEach((row) => {
+    const googleAdsId = googleAdsIdx >= 0 ? (row[googleAdsIdx] || '').trim() : '';
+    const campaignId = campaignIdIdx >= 0 ? (row[campaignIdIdx] || '').trim() : '';
+    if (!googleAdsId || !campaignId) return;
+
+    let entry = map.get(googleAdsId);
+    if (!entry) {
+      entry = {
+        managed: toBool(cell(row, managedIdx)),
+        updatedBy: cell(row, updatedByIdx) || '',
+        updatedAt: cell(row, updatedAtIdx) || '',
+        campaigns: new Map(),
+      };
+      map.set(googleAdsId, entry);
+    } else {
+      // Back-fill account-level fields from later rows if the first was empty.
+      if (!entry.managed) entry.managed = toBool(cell(row, managedIdx));
+      if (!entry.updatedBy) entry.updatedBy = cell(row, updatedByIdx) || '';
+      if (!entry.updatedAt) entry.updatedAt = cell(row, updatedAtIdx) || '';
+    }
+    entry.campaigns.set(campaignId, toNum(cell(row, dollarsIdx)));
+  });
+
+  return map;
+}
+
+// Backend-owned, read-only "Campaign Budget Status" sheet: keyed by campaign_id.
+function parseBudgetStatus(rows: string[][]): Map<string, BudgetStatusEntry> {
+  const map = new Map<string, BudgetStatusEntry>();
+  if (rows.length <= 1) return map;
+
+  const headers = rows[0].map((h) => h.toLowerCase().trim());
+  const idx = (name: string) => headers.findIndex((h) => h === name);
+  const campaignIdIdx = idx('campaign_id');
+  const sharedIdx = idx('shared_budget');
+  const modeIdx = idx('effective_mode');
+  const reasonIdx = idx('status_reason');
+  const evaluatedIdx = idx('last_evaluated');
+  const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
+
+  rows.slice(1).forEach((row) => {
+    const campaignId = campaignIdIdx >= 0 ? (row[campaignIdIdx] || '').trim() : '';
+    if (!campaignId) return;
+    const rawMode = (cell(row, modeIdx) || '').trim().toLowerCase();
+    const effectiveMode = rawMode === 'campaign' ? 'campaign' : rawMode === 'account' ? 'account' : null;
+    map.set(campaignId, {
+      sharedBudget: toBool(cell(row, sharedIdx)),
+      effectiveMode,
+      statusReason: cell(row, reasonIdx) || '',
+      lastEvaluated: cell(row, evaluatedIdx) || '',
+    });
+  });
+
+  return map;
+}
+
+// Join budget config (by google_ads_id) and runtime status (by campaign_id) onto every
+// pacing record, and derive the account-level effective-mode rollup.
+function applyBudgetConfigs(
+  records: GAdsPacingRecord[],
+  configMap: Map<string, BudgetConfigEntry>,
+  statusMap: Map<string, BudgetStatusEntry>,
+): void {
+  records.forEach((record) => {
+    const config = configMap.get(record.googleAdsId);
+
+    record.budgetConfig = config
+      ? {
+          googleAdsId: record.googleAdsId,
+          managed: config.managed,
+          updatedBy: config.updatedBy,
+          updatedAt: config.updatedAt,
+        }
+      : null;
+
+    // Per-campaign join.
+    record.campaigns.forEach((c) => {
+      const status = c.campaignId ? statusMap.get(c.campaignId) : undefined;
+      c.budgetDollars = config?.campaigns.has(c.campaignId)
+        ? (config.campaigns.get(c.campaignId) as number)
+        : null;
+      c.sharedBudget = status?.sharedBudget ?? false;
+      c.effectiveMode = status?.effectiveMode ?? null;
+      c.statusReason = status?.statusReason ?? '';
+    });
+
+    // Account rollup: campaign-level only when managed AND every eligible campaign is
+    // effectively campaign-level per backend status. Otherwise account-level with the
+    // first explanatory reason (shared-budget revert, incomplete coverage, etc.).
+    if (config?.managed) {
+      const eligible = record.campaigns.filter((c) => !c.sharedBudget);
+      const allCampaign =
+        eligible.length > 0 && eligible.every((c) => c.effectiveMode === 'campaign');
+      if (allCampaign) {
+        record.effectiveMode = 'campaign';
+        record.statusReason = '';
+      } else {
+        record.effectiveMode = 'account';
+        const reasonSource =
+          record.campaigns.find((c) => c.statusReason)?.statusReason ||
+          (record.campaigns.some((c) => c.sharedBudget)
+            ? 'A targeted campaign is on a shared budget — pacing runs at the account level.'
+            : 'Pending re-evaluation.');
+        record.statusReason = reasonSource;
+      }
+    } else {
+      record.effectiveMode = 'account';
+      record.statusReason = '';
+    }
+  });
 }
 
 function normalizeConfidence(raw: string | undefined): Confidence {
@@ -619,13 +772,15 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
 
   try {
     // Fetch all sheets in parallel (newer sheets may not exist yet — gracefully return empty)
-    const [blogsData, gmbPostsData, repliesData, negKeywordsData, gAdsPacingData, kwBuildoutData] = await Promise.all([
+    const [blogsData, gmbPostsData, repliesData, negKeywordsData, gAdsPacingData, kwBuildoutData, budgetsData, budgetStatusData] = await Promise.all([
       fetchSheet('Blogs'),
       fetchSheet('GMB Posts'),
       fetchSheet('GMB Replies'),
       fetchSheet('Negative Keywords').catch(() => [] as string[][]),
       fetchSheet('G Ads Pacing', 'A:BH').catch(() => [] as string[][]),
       fetchSheet('KW Buildout Proposals').catch(() => [] as string[][]),
+      fetchSheet('Campaign Budgets').catch(() => [] as string[][]),
+      fetchSheet('Campaign Budget Status').catch(() => [] as string[][]),
     ]);
 
     const { valid: blogs, errors: blogErrors } = parseBlogs(blogsData);
@@ -633,6 +788,7 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
     const replies = parseReplies(repliesData);
     const negKeywordReviews = parseNegKeywordReviews(negKeywordsData);
     const gAdsPacing = parseGAdsPacing(gAdsPacingData);
+    applyBudgetConfigs(gAdsPacing, parseBudgets(budgetsData), parseBudgetStatus(budgetStatusData));
     const kwBuildout = parseKwBuildout(kwBuildoutData);
 
     // Sort by date descending

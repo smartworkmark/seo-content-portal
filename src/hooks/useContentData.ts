@@ -13,6 +13,18 @@ export interface GAdsPacingFeedbackPayload {
   notes: string;
 }
 
+export interface BudgetAllocationCampaign {
+  campaign_id: string;
+  campaign_name: string;
+  budget_dollars: number;
+}
+
+export interface BudgetAllocationPayload {
+  managed: boolean; // false = clear back to account-level pacing
+  updatedBy: string;
+  campaigns: BudgetAllocationCampaign[]; // empty when managed=false
+}
+
 interface UseContentDataReturn {
   data: ContentResponse | null;
   isLoading: boolean;
@@ -27,6 +39,7 @@ interface UseContentDataReturn {
   filterCounts: { blogs: number; gmbPosts: number; replies: number; negKeywords: number; gAdsPacing: number; kwBuildout: number };
   clientSummary: SummaryData | null;
   submitGAdsPacingFeedback: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
+  submitBudgetAllocation: (record: GAdsPacingRecord, payload: BudgetAllocationPayload) => Promise<void>;
   submitKwBuildoutFeedback: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[], notes: string) => Promise<void>;
   // Error data
   blogErrors: BlogError[];
@@ -180,6 +193,60 @@ export function useContentData(
     });
   }, []);
 
+  const submitBudgetAllocation = useCallback(async (
+    record: GAdsPacingRecord,
+    payload: BudgetAllocationPayload,
+  ) => {
+    const webhookUrl = process.env.NEXT_PUBLIC_BUDGET_WEBHOOK_URL;
+    if (!webhookUrl) {
+      throw new Error('NEXT_PUBLIC_BUDGET_WEBHOOK_URL is not configured');
+    }
+
+    const body = {
+      google_ads_id: record.googleAdsId,
+      practice_name: record.practiceName,
+      // Non-authoritative snapshot — HubSpot owns the real account budget.
+      account_monthly_budget_snapshot: record.monthlyBudget,
+      updated_by: payload.updatedBy,
+      managed: payload.managed,
+      campaigns: payload.campaigns,
+    };
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`Webhook failed with ${response.status}`);
+    }
+
+    // Optimistically reflect the operator INTENT across every record for this account.
+    // effectiveMode / statusReason are backend-owned and refresh on the next sync, so we
+    // leave those to be re-evaluated rather than guessing the runtime outcome here.
+    const dollarsByCampaign = new Map(payload.campaigns.map((c) => [c.campaign_id, c.budget_dollars]));
+    setData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        gAdsPacing: prev.gAdsPacing.map((r) =>
+          r.googleAdsId === record.googleAdsId
+            ? {
+                ...r,
+                budgetConfig: payload.managed
+                  ? { googleAdsId: r.googleAdsId, managed: true, updatedBy: payload.updatedBy, updatedAt: r.budgetConfig?.updatedAt ?? '' }
+                  : null,
+                campaigns: r.campaigns.map((c) => ({
+                  ...c,
+                  budgetDollars: payload.managed ? (dollarsByCampaign.get(c.campaignId) ?? null) : null,
+                })),
+              }
+            : r,
+        ),
+      };
+    });
+  }, []);
+
   const submitKwBuildoutFeedback = useCallback(async (
     record: KwBuildoutRecord,
     approvedKeys: KwBuildoutApprovedKey[],
@@ -267,6 +334,7 @@ export function useContentData(
     filterCounts,
     clientSummary,
     submitGAdsPacingFeedback,
+    submitBudgetAllocation,
     submitKwBuildoutFeedback,
     // Error data
     blogErrors,

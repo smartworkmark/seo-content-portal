@@ -99,6 +99,24 @@ export interface GAdsPacingCampaign {
   finalDailyBudget: number | null;
   autoDecreasePromoted: boolean;
   appliedDecreasePercent: number | null;
+  // Campaign-level budget allocation. budgetDollars is the operator-set monthly $ intent
+  // (canonical; percent is derived in the UI). null = this campaign is not part of a
+  // managed allocation. sharedBudget/effectiveMode/statusReason are backend-owned runtime
+  // state joined from the "Campaign Budget Status" sheet (never written by the portal).
+  budgetDollars: number | null;
+  sharedBudget: boolean;
+  effectiveMode: 'account' | 'campaign' | null;
+  statusReason: string;
+}
+
+// Operator intent for an account's campaign-level budget split. Persisted in the
+// frontend-owned "Campaign Budgets" sheet. The account monthly budget itself is NOT owned
+// here — it rides on GAdsPacingRecord.monthlyBudget (HubSpot-sourced).
+export interface AccountBudgetConfig {
+  googleAdsId: string;
+  managed: boolean; // true once campaigns are allocated (all-or-nothing)
+  updatedBy: string;
+  updatedAt: string;
 }
 
 export interface GAdsPacingRecord {
@@ -126,6 +144,12 @@ export interface GAdsPacingRecord {
   dowMultiplier: number | null;
   dowFlags: string;
   campaigns: GAdsPacingCampaign[];
+  // Campaign-level budget allocation (joined on fetch). budgetConfig is the operator
+  // intent; effectiveMode/statusReason are the derived account-level rollup of the
+  // backend runtime state (see applyBudgetConfigs in google-sheets.ts).
+  budgetConfig: AccountBudgetConfig | null;
+  effectiveMode: 'account' | 'campaign';
+  statusReason: string;
 }
 
 // Keyword Build-Out (proposed keywords for review)

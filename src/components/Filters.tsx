@@ -24,11 +24,18 @@ interface FiltersProps {
   onFeatureToggle?: (feature: string) => void;
   selectedSeverities?: Severity[];
   onSeveritiesChange?: (severities: Severity[]) => void;
+  selectedModes?: Array<'account' | 'campaign'>;
+  onModesChange?: (modes: Array<'account' | 'campaign'>) => void;
   selectedConfidences?: string[];
   onConfidencesChange?: (confidences: string[]) => void;
 }
 
 const SEVERITY_OPTIONS: Severity[] = ['Critical', 'Investigate', 'Alert', 'Underpace', 'Auto', 'OK'];
+const MODE_OPTIONS = ['Account-level', 'Campaign-level'] as const;
+const modeLabelToValue = (label: string): 'account' | 'campaign' =>
+  label === 'Campaign-level' ? 'campaign' : 'account';
+const modeValueToLabel = (value: 'account' | 'campaign'): string =>
+  value === 'campaign' ? 'Campaign-level' : 'Account-level';
 const CONFIDENCE_OPTIONS: string[] = ['high', 'medium', 'low'];
 
 export function Filters({
@@ -48,6 +55,8 @@ export function Filters({
   onFeatureToggle,
   selectedSeverities = [],
   onSeveritiesChange,
+  selectedModes = [],
+  onModesChange,
   selectedConfidences = [],
   onConfidencesChange,
 }: FiltersProps) {
@@ -132,6 +141,20 @@ export function Filters({
                 options={SEVERITY_OPTIONS}
                 selected={selectedSeverities}
                 onChange={(s) => onSeveritiesChange(s as Severity[])}
+              />
+            </div>
+          )}
+
+          {/* Mode Filter — G Ads Pacing tab only */}
+          {contentType === 'g-ads-pacing' && onModesChange && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 whitespace-nowrap">Mode:</label>
+              <MultiSelectDropdown
+                label="Mode"
+                pluralLabel="Modes"
+                options={[...MODE_OPTIONS]}
+                selected={selectedModes.map(modeValueToLabel)}
+                onChange={(labels) => onModesChange(labels.map(modeLabelToValue))}
               />
             </div>
           )}

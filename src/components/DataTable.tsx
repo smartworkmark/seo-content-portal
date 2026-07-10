@@ -8,7 +8,7 @@ import { SEVERITY_STYLES, actionDotCounts, fmtCompactDate, fmtMoney, fmtSignedPe
 import { confidenceMix, reviewCounts, totalConversions } from '@/lib/kw-buildout';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
 import { KwBuildoutDetailPanel } from './KwBuildoutDetailPanel';
-import type { GAdsPacingFeedbackPayload } from '@/hooks/useContentData';
+import type { GAdsPacingFeedbackPayload, BudgetAllocationPayload } from '@/hooks/useContentData';
 import { TableSkeleton } from './SkeletonLoader';
 
 const HUBSPOT_URL = 'https://app.hubspot.com/contacts/22697387/record/0-2/';
@@ -28,6 +28,7 @@ interface DataTableProps {
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
   onSubmitGAdsFeedback?: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
+  onSubmitBudget?: (record: GAdsPacingRecord, payload: BudgetAllocationPayload) => Promise<void>;
   onSubmitKwFeedback?: (record: KwBuildoutRecord, approvedKeys: KwBuildoutApprovedKey[], notes: string) => Promise<void>;
 }
 
@@ -210,6 +211,7 @@ export function DataTable({
   featureFilters = {},
   onFeatureToggle,
   onSubmitGAdsFeedback,
+  onSubmitBudget,
   onSubmitKwFeedback,
 }: DataTableProps) {
   const [sort, setSort] = useState<SortState>({ column: 'date', direction: 'desc' });
@@ -857,6 +859,11 @@ export function DataTable({
                       Practice <SortIcon column="practiceName" />
                     </button>
                   </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('effectiveMode')} className="flex items-center gap-1 hover:text-gray-900">
+                      Mode <SortIcon column="effectiveMode" />
+                    </button>
+                  </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     <button onClick={() => handleSort('monthlyBudget')} className="flex items-center gap-1 hover:text-gray-900 ml-auto">
                       Budget <SortIcon column="monthlyBudget" />
@@ -885,7 +892,7 @@ export function DataTable({
               <tbody>
                 {paginatedData.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-500">
+                    <td colSpan={10} className="px-4 py-16 text-center text-sm text-gray-500">
                       No pacing records found for the selected filters.
                     </td>
                   </tr>
@@ -933,6 +940,17 @@ export function DataTable({
                           <td className="px-4 py-3 text-sm text-gray-900 font-medium">
                             {record.practiceName}
                           </td>
+                          <td className="px-4 py-3 text-sm whitespace-nowrap">
+                            {record.effectiveMode === 'campaign' ? (
+                              <span className="bg-violet-50 text-violet-700 ring-1 ring-violet-200 px-2 py-0.5 rounded-full text-xs font-semibold">
+                                Campaign
+                              </span>
+                            ) : (
+                              <span className="bg-slate-100 text-slate-600 ring-1 ring-slate-200 px-2 py-0.5 rounded-full text-xs font-semibold">
+                                Account
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-sm text-gray-700 text-right whitespace-nowrap">
                             {fmtMoney(record.monthlyBudget)}
                           </td>
@@ -974,8 +992,8 @@ export function DataTable({
                             )}
                           </td>
                         </tr>
-                        {isExpanded && onSubmitGAdsFeedback && (
-                          <GAdsPacingDetailPanel record={record} colSpan={9} onSubmit={onSubmitGAdsFeedback} />
+                        {isExpanded && onSubmitGAdsFeedback && onSubmitBudget && (
+                          <GAdsPacingDetailPanel record={record} colSpan={10} onSubmit={onSubmitGAdsFeedback} onSubmitBudget={onSubmitBudget} />
                         )}
                       </Fragment>
                     );

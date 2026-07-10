@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange>('7d');
   const [featureFilters, setFeatureFilters] = useState<FeatureFilters>({});
   const [selectedSeverities, setSelectedSeverities] = useState<Severity[]>([]);
+  const [selectedModes, setSelectedModes] = useState<Array<'account' | 'campaign'>>([]);
   const [selectedConfidences, setSelectedConfidences] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
@@ -74,6 +75,7 @@ export default function Dashboard() {
     errorSummary,
     clientSummary,
     submitGAdsPacingFeedback,
+    submitBudgetAllocation,
     submitKwBuildoutFeedback,
   } = useContentData(selectedPractices, selectedDateRange);
 
@@ -120,12 +122,13 @@ export default function Dashboard() {
         { key: 'termsReviewed', label: 'Terms Reviewed' },
       ]);
     } else if (activeTab === 'g-ads-pacing') {
-      exportToCSV(severityFilteredGAdsPacing, 'g-ads-pacing', [
+      exportToCSV(modeFilteredGAdsPacing, 'g-ads-pacing', [
         { key: 'runDate', label: 'Run Date' },
         { key: 'practiceName', label: 'Practice' },
         { key: 'googleAdsId', label: 'Google Ads ID' },
         { key: 'companyId', label: 'HSID' },
         { key: 'severity', label: 'Severity' },
+        { key: 'effectiveMode', label: 'Mode' },
         { key: 'monthlyBudget', label: 'Budget' },
         { key: 'spendMtd', label: 'Spent MTD' },
         { key: 'variancePercent', label: 'Variance %' },
@@ -194,6 +197,12 @@ export default function Dashboard() {
     ? filteredGAdsPacing
     : filteredGAdsPacing.filter((r) => selectedSeverities.includes(r.severity));
 
+  // Mode filter — composed on top of the severity filter. Empty selection = show all.
+  // This is the most-derived pacing variable; it feeds both the table and CSV export.
+  const modeFilteredGAdsPacing = selectedModes.length === 0
+    ? severityFilteredGAdsPacing
+    : severityFilteredGAdsPacing.filter((r) => selectedModes.includes(r.effectiveMode));
+
   // Confidence filter — applied as a final pass on top of practice+date filtered records.
   // A batch is kept if any of its keywords match a selected confidence. Empty = show all.
   const confidenceFilteredKwBuildout = selectedConfidences.length === 0
@@ -221,7 +230,10 @@ export default function Dashboard() {
     setSelectedPractices([]);
     setSelectedDateRange(mappedRange);
     if (tab !== 'blogs') setFeatureFilters({});
-    if (tab !== 'g-ads-pacing') setSelectedSeverities([]);
+    if (tab !== 'g-ads-pacing') {
+      setSelectedSeverities([]);
+      setSelectedModes([]);
+    }
     if (tab !== 'kw-buildout') setSelectedConfidences([]);
   };
 
@@ -393,6 +405,8 @@ export default function Dashboard() {
               onFeatureToggle={handleFeatureToggle}
               selectedSeverities={selectedSeverities}
               onSeveritiesChange={setSelectedSeverities}
+              selectedModes={selectedModes}
+              onModesChange={setSelectedModes}
               selectedConfidences={selectedConfidences}
               onConfidencesChange={setSelectedConfidences}
             />
@@ -431,7 +445,7 @@ export default function Dashboard() {
             gmbPosts={filteredGmbPosts}
             replies={filteredReplies}
             negKeywordReviews={filteredNegKeywords}
-            gAdsPacing={severityFilteredGAdsPacing}
+            gAdsPacing={modeFilteredGAdsPacing}
             kwBuildout={confidenceFilteredKwBuildout}
             isLoading={isLoading}
             isErrorMode={showErrors}
@@ -440,6 +454,7 @@ export default function Dashboard() {
             featureFilters={featureFilters}
             onFeatureToggle={handleFeatureToggle}
             onSubmitGAdsFeedback={submitGAdsPacingFeedback}
+            onSubmitBudget={submitBudgetAllocation}
             onSubmitKwFeedback={submitKwBuildoutFeedback}
           />
         </section>

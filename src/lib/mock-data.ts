@@ -434,6 +434,11 @@ function buildCampaign(
     finalDailyBudget: Math.round(proposedDaily * dowMultiplier),
     autoDecreasePromoted,
     appliedDecreasePercent,
+    // Budget allocation defaults — some accounts are seeded as "managed" in generateGAdsPacing.
+    budgetDollars: null,
+    sharedBudget: false,
+    effectiveMode: null,
+    statusReason: '',
   };
 }
 
@@ -509,6 +514,34 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       buildCampaign(i, j, monthlyBudget, 1 / numCampaigns, scenario, dowMultiplier),
     );
 
+    // Seed campaign-level budget allocation on a subset of accounts so the feature is
+    // demoable against mock data:
+    //   i % 6 === 0 -> fully managed, campaign-level (budgets ~= monthly budget)
+    //   i % 6 === 3 -> managed intent but reverted to account-level (one shared campaign)
+    let budgetConfig: GAdsPacingRecord['budgetConfig'] = null;
+    let effectiveMode: GAdsPacingRecord['effectiveMode'] = 'account';
+    let statusReason = '';
+    if (scenario !== 'grace' && i % 6 === 0) {
+      budgetConfig = { googleAdsId, managed: true, updatedBy: 'Mark', updatedAt: runDate };
+      effectiveMode = 'campaign';
+      campaigns.forEach((c, j) => {
+        c.budgetDollars = Math.round(monthlyBudget / campaigns.length) + (j === 0 ? monthlyBudget % campaigns.length : 0);
+        c.sharedBudget = false;
+        c.effectiveMode = 'campaign';
+        c.statusReason = '';
+      });
+    } else if (scenario !== 'grace' && i % 6 === 3 && campaigns.length > 1) {
+      budgetConfig = { googleAdsId, managed: true, updatedBy: 'Mark', updatedAt: runDate };
+      effectiveMode = 'account';
+      statusReason = 'A targeted campaign is on a shared budget — pacing runs at the account level.';
+      campaigns.forEach((c, j) => {
+        c.budgetDollars = j === 0 ? null : Math.round(monthlyBudget / (campaigns.length - 1));
+        c.sharedBudget = j === 0; // first campaign is on a shared budget (ineligible)
+        c.effectiveMode = 'account';
+        c.statusReason = j === 0 ? 'On a shared Google Ads budget.' : '';
+      });
+    }
+
     return {
       id: `${runDate}|${googleAdsId}`,
       runDate,
@@ -532,6 +565,9 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       dowMultiplier,
       dowFlags,
       campaigns,
+      budgetConfig,
+      effectiveMode,
+      statusReason,
     };
   });
 }
