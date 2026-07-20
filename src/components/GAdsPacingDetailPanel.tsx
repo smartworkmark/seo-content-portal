@@ -12,10 +12,13 @@ import {
   isSaveEnabled,
 } from '@/lib/budget-allocation';
 import {
+  DISPLAY_STATUS_STYLES,
+  DISPLAY_STATUS_NEW_STYLE,
   DOW_FLAG_LABELS,
   RECOMMENDATION_LABELS,
   SKIP_REASON_LABELS,
   appliedStatusLabel,
+  resolveDisplayStatus,
   budgetLimitedCount,
   campaignBudgetView,
   changeTone,
@@ -521,6 +524,10 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudge
   // Hide the feedback form when there's nothing actionable to approve.
   const showFeedbackForm = !showGrace && !record.accountOnTrack && needsApproval(record);
 
+  // Client-facing pacing tier (account-level; campaigns inherit it). null → month-start "New".
+  const tier = resolveDisplayStatus(record);
+  const status = tier === null ? DISPLAY_STATUS_NEW_STYLE : DISPLAY_STATUS_STYLES[tier];
+
   return (
     <tr>
       <td
@@ -532,6 +539,20 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudge
         }}
       >
         <div style={{ padding: '14px 24px 18px 52px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Client-facing pacing status (mirrors the collapsed row's Status pill) */}
+          <div className="flex items-center gap-2">
+            <span style={{ ...labelStyle, marginBottom: 0 }}>Pacing status</span>
+            <span className={`${status.pill} ${status.text}`} style={{
+              display: 'inline-block',
+              padding: '3px 10px',
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+            }}>
+              {status.label}
+            </span>
+          </div>
           {showGrace && (
             <Banner
               tone="slate"

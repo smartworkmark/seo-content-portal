@@ -53,6 +53,15 @@ export interface NegKeywordReview {
 // G Ads Pacing
 export type Severity = 'OK' | 'Auto' | 'Alert' | 'Underpace' | 'Critical' | 'Investigate';
 
+// Client-facing pacing label (five symmetric tiers). Derived from month-to-date variance %.
+// This is what the client sees; `severity` remains the internal ops/routing signal.
+export type DisplayStatus =
+  | 'On Track'
+  | 'Overpacing'
+  | 'Significantly Overpacing'
+  | 'Underpacing'
+  | 'Significantly Underpacing';
+
 export type RecommendationType =
   | 'PAUSE_CAMPAIGN'
   | 'BUDGET_DECREASE_APPROVAL'
@@ -133,6 +142,9 @@ export interface GAdsPacingRecord {
   currentDailyBudget: number;
   proposedDailyBudget: number;
   severity: Severity;
+  // Raw client-facing pacing label from the sheet's `display_status` column (account-level).
+  // '' when absent — the resolver falls back to computing a tier from variancePercent.
+  displayStatus: string;
   approvalStatus: ApprovalStatus;
   reviewedBy: string;
   notes: string;
