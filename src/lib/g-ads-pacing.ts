@@ -1,5 +1,6 @@
 import type {
   Classification,
+  DisplayStatus,
   GAdsPacingCampaign,
   GAdsPacingRecord,
   RecommendationType,
@@ -42,6 +43,96 @@ export const SEVERITY_STYLES: Record<
     text: 'text-emerald-700',
   },
 };
+
+// Client-facing pacing tiers. Colored by magnitude only: On Track = green, mild = amber,
+// significant = red (direction is conveyed by the label text). "New" is the neutral state
+// shown during month-start grace — it is NOT a DisplayStatus tier, so it lives outside this map.
+export const DISPLAY_STATUS_STYLES: Record<
+  DisplayStatus,
+  { label: string; pill: string; text: string }
+> = {
+  'Significantly Overpacing': {
+    label: 'Significantly Overpacing',
+    pill: 'bg-rose-50 ring-1 ring-rose-200',
+    text: 'text-rose-700',
+  },
+  Overpacing: {
+    label: 'Overpacing',
+    pill: 'bg-amber-50 ring-1 ring-amber-200',
+    text: 'text-amber-700',
+  },
+  'On Track': {
+    label: 'On Track',
+    pill: 'bg-emerald-50 ring-1 ring-emerald-200',
+    text: 'text-emerald-700',
+  },
+  Underpacing: {
+    label: 'Underpacing',
+    pill: 'bg-amber-50 ring-1 ring-amber-200',
+    text: 'text-amber-700',
+  },
+  'Significantly Underpacing': {
+    label: 'Significantly Underpacing',
+    pill: 'bg-rose-50 ring-1 ring-rose-200',
+    text: 'text-rose-700',
+  },
+};
+
+// Neutral pill for the month-start grace state (resolver returns null).
+export const DISPLAY_STATUS_NEW_STYLE = {
+  label: 'New',
+  pill: 'bg-slate-100 ring-1 ring-slate-200',
+  text: 'text-slate-500',
+} as const;
+
+// The five tiers, ordered for the filter dropdown (worst-over → worst-under).
+export const DISPLAY_STATUS_OPTIONS: DisplayStatus[] = [
+  'Significantly Overpacing',
+  'Overpacing',
+  'On Track',
+  'Underpacing',
+  'Significantly Underpacing',
+];
+
+// Case-insensitive match of a raw sheet value to a known tier. Returns null for blank/unknown
+// so the caller can fall back to the variance-derived tier.
+export function normalizeDisplayStatus(raw: string | undefined | null): DisplayStatus | null {
+  const s = (raw ?? '').trim().toLowerCase();
+  if (!s) return null;
+  const match = DISPLAY_STATUS_OPTIONS.find((t) => t.toLowerCase() === s);
+  return match ?? null;
+}
+
+// Pure tier function: derive the client-facing tier from signed month-to-date variance %.
+// Positive variance = overspending (overpacing); negative = underpacing. Boundary rule: `>`
+// promotes to the higher tier — exactly ±10 stays On Track, exactly ±20 stays the mild tier.
+export function displayStatusFromVariance(variancePercent: number): DisplayStatus {
+  const v = Number.isFinite(variancePercent) ? variancePercent : 0;
+  const mag = Math.abs(v);
+  if (mag <= 10) return 'On Track';
+  if (v > 0) return mag > 20 ? 'Significantly Overpacing' : 'Overpacing';
+  return mag > 20 ? 'Significantly Underpacing' : 'Underpacing';
+}
+
+// Single source of truth for the visible client status. Precedence:
+//   1. month-start grace → null (renders as the neutral "New" pill)
+//   2. the sheet's display_status column (authoritative when present)
+//   3. fallback: tier derived from month-to-date variance %
+export function resolveDisplayStatus(
+  record: Pick<GAdsPacingRecord, 'campaigns' | 'displayStatus' | 'variancePercent'>,
+): DisplayStatus | null {
+  if (shouldShowGraceBanner(record)) return null;
+  return normalizeDisplayStatus(record.displayStatus) ?? displayStatusFromVariance(record.variancePercent);
+}
+
+// Stable ordering for sorting the Status column. Grace/New sorts last.
+export function displayStatusRank(
+  record: Pick<GAdsPacingRecord, 'campaigns' | 'displayStatus' | 'variancePercent'>,
+): number {
+  const tier = resolveDisplayStatus(record);
+  if (tier === null) return DISPLAY_STATUS_OPTIONS.length; // New → last
+  return DISPLAY_STATUS_OPTIONS.indexOf(tier);
+}
 
 export const RECOMMENDATION_LABELS: Record<
   RecommendationType,

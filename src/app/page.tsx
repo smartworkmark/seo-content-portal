@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview, Severity } from '@/types';
+import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview, DisplayStatus } from '@/types';
+import { resolveDisplayStatus } from '@/lib/g-ads-pacing';
 import { flagsList } from '@/lib/kw-buildout';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
@@ -41,7 +42,7 @@ export default function Dashboard() {
   const [selectedPractices, setSelectedPractices] = useState<string[]>([]);
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange>('7d');
   const [featureFilters, setFeatureFilters] = useState<FeatureFilters>({});
-  const [selectedSeverities, setSelectedSeverities] = useState<Severity[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<DisplayStatus[]>([]);
   const [selectedModes, setSelectedModes] = useState<Array<'account' | 'campaign'>>([]);
   const [selectedConfidences, setSelectedConfidences] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -122,12 +123,18 @@ export default function Dashboard() {
         { key: 'termsReviewed', label: 'Terms Reviewed' },
       ]);
     } else if (activeTab === 'g-ads-pacing') {
-      exportToCSV(modeFilteredGAdsPacing, 'g-ads-pacing', [
+      // Attach the resolved client-facing status so the CSV matches the on-screen label
+      // (severity is intentionally omitted — it's an internal signal now).
+      const pacingForExport = modeFilteredGAdsPacing.map((r) => ({
+        ...r,
+        status: resolveDisplayStatus(r) ?? 'New',
+      }));
+      exportToCSV(pacingForExport, 'g-ads-pacing', [
         { key: 'runDate', label: 'Run Date' },
         { key: 'practiceName', label: 'Practice' },
         { key: 'googleAdsId', label: 'Google Ads ID' },
         { key: 'companyId', label: 'HSID' },
-        { key: 'severity', label: 'Severity' },
+        { key: 'status', label: 'Status' },
         { key: 'effectiveMode', label: 'Mode' },
         { key: 'monthlyBudget', label: 'Budget' },
         { key: 'spendMtd', label: 'Spent MTD' },
@@ -191,17 +198,21 @@ export default function Dashboard() {
         )
       );
 
-  // Severity filter — applied as a final pass on top of practice+date filtered pacing records.
-  // Empty selection = show all severities.
-  const severityFilteredGAdsPacing = selectedSeverities.length === 0
+  // Status filter (client-facing pacing tier) — applied as a final pass on top of practice+date
+  // filtered pacing records. Empty selection = show all. Every row resolves to a tier via the
+  // resolver (grace rows resolve to null "New" and drop out when a specific tier is selected).
+  const statusFilteredGAdsPacing = selectedStatuses.length === 0
     ? filteredGAdsPacing
-    : filteredGAdsPacing.filter((r) => selectedSeverities.includes(r.severity));
+    : filteredGAdsPacing.filter((r) => {
+        const tier = resolveDisplayStatus(r);
+        return tier !== null && selectedStatuses.includes(tier);
+      });
 
-  // Mode filter — composed on top of the severity filter. Empty selection = show all.
+  // Mode filter — composed on top of the status filter. Empty selection = show all.
   // This is the most-derived pacing variable; it feeds both the table and CSV export.
   const modeFilteredGAdsPacing = selectedModes.length === 0
-    ? severityFilteredGAdsPacing
-    : severityFilteredGAdsPacing.filter((r) => selectedModes.includes(r.effectiveMode));
+    ? statusFilteredGAdsPacing
+    : statusFilteredGAdsPacing.filter((r) => selectedModes.includes(r.effectiveMode));
 
   // Confidence filter — applied as a final pass on top of practice+date filtered records.
   // A batch is kept if any of its keywords match a selected confidence. Empty = show all.
@@ -231,7 +242,7 @@ export default function Dashboard() {
     setSelectedDateRange(mappedRange);
     if (tab !== 'blogs') setFeatureFilters({});
     if (tab !== 'g-ads-pacing') {
-      setSelectedSeverities([]);
+      setSelectedStatuses([]);
       setSelectedModes([]);
     }
     if (tab !== 'kw-buildout') setSelectedConfidences([]);
@@ -403,8 +414,8 @@ export default function Dashboard() {
               onDeleteFilter={deleteFilter}
               featureFilters={featureFilters}
               onFeatureToggle={handleFeatureToggle}
-              selectedSeverities={selectedSeverities}
-              onSeveritiesChange={setSelectedSeverities}
+              selectedStatuses={selectedStatuses}
+              onStatusesChange={setSelectedStatuses}
               selectedModes={selectedModes}
               onModesChange={setSelectedModes}
               selectedConfidences={selectedConfidences}

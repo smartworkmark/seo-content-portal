@@ -1,7 +1,8 @@
 'use client';
 
-import { DateRange, ContentType, SavedFilter, FeatureFilters, Severity } from '@/types';
+import { DateRange, ContentType, SavedFilter, FeatureFilters, DisplayStatus } from '@/types';
 import { FEATURE_CONFIG } from '@/lib/features';
+import { DISPLAY_STATUS_OPTIONS } from '@/lib/g-ads-pacing';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { SavedFiltersBar } from './SavedFiltersBar';
 import { SaveFilterModal } from './SaveFilterModal';
@@ -22,15 +23,14 @@ interface FiltersProps {
   onDeleteFilter: (id: string) => void;
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
-  selectedSeverities?: Severity[];
-  onSeveritiesChange?: (severities: Severity[]) => void;
+  selectedStatuses?: DisplayStatus[];
+  onStatusesChange?: (statuses: DisplayStatus[]) => void;
   selectedModes?: Array<'account' | 'campaign'>;
   onModesChange?: (modes: Array<'account' | 'campaign'>) => void;
   selectedConfidences?: string[];
   onConfidencesChange?: (confidences: string[]) => void;
 }
 
-const SEVERITY_OPTIONS: Severity[] = ['Critical', 'Investigate', 'Alert', 'Underpace', 'Auto', 'OK'];
 const MODE_OPTIONS = ['Account-level', 'Campaign-level'] as const;
 const modeLabelToValue = (label: string): 'account' | 'campaign' =>
   label === 'Campaign-level' ? 'campaign' : 'account';
@@ -53,8 +53,8 @@ export function Filters({
   onDeleteFilter,
   featureFilters = {},
   onFeatureToggle,
-  selectedSeverities = [],
-  onSeveritiesChange,
+  selectedStatuses = [],
+  onStatusesChange,
   selectedModes = [],
   onModesChange,
   selectedConfidences = [],
@@ -131,16 +131,16 @@ export function Filters({
             ))}
           </div>
 
-          {/* Severity Filter — G Ads Pacing tab only */}
-          {contentType === 'g-ads-pacing' && onSeveritiesChange && (
+          {/* Status Filter (client-facing pacing tier) — G Ads Pacing tab only */}
+          {contentType === 'g-ads-pacing' && onStatusesChange && (
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600 whitespace-nowrap">Severity:</label>
+              <label className="text-sm text-gray-600 whitespace-nowrap">Status:</label>
               <MultiSelectDropdown
-                label="Severity"
-                pluralLabel="Severities"
-                options={SEVERITY_OPTIONS}
-                selected={selectedSeverities}
-                onChange={(s) => onSeveritiesChange(s as Severity[])}
+                label="Status"
+                pluralLabel="Statuses"
+                options={DISPLAY_STATUS_OPTIONS}
+                selected={selectedStatuses}
+                onChange={(s) => onStatusesChange(s as DisplayStatus[])}
               />
             </div>
           )}

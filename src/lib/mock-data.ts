@@ -1,4 +1,5 @@
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, RecommendationType, Severity, Classification, SkipReason } from '@/types';
+import { displayStatusFromVariance } from '@/lib/g-ads-pacing';
 
 // Sample practice names
 const practices = [
@@ -502,6 +503,14 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
         break;
     }
 
+    // Client-facing display_status column. Seed it on ~half the rows (even i) so the column
+    // path is exercised, leave it blank on odd i so the variance fallback fires, and give
+    // i % 10 === 7 an intentionally divergent value to prove the column wins over variance.
+    const displayStatus =
+      i % 10 === 7 ? 'On Track'
+      : i % 2 === 0 ? displayStatusFromVariance(variance)
+      : '';
+
     // Day-of-week multiplier is inert (1) for every scenario except 'dow', mirroring
     // current production data where the shaping isn't applied yet.
     const dowMultiplier = scenario === 'dow' ? 1.2 : 1;
@@ -556,6 +565,7 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       currentDailyBudget: Math.round(monthlyBudget / 30),
       proposedDailyBudget: Math.round(monthlyBudget / 30),
       severity,
+      displayStatus,
       approvalStatus: !accountOnTrack && scenario !== 'grace' && i % 5 === 0 ? 'Approved' : '',
       reviewedBy: !accountOnTrack && scenario !== 'grace' && i % 5 === 0 ? 'Mark' : '',
       notes: '',

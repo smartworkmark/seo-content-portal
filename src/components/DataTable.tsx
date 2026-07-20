@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, KwBuildoutRecord, KwBuildoutApprovedKey, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { SEVERITY_STYLES, actionDotCounts, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
+import { DISPLAY_STATUS_STYLES, DISPLAY_STATUS_NEW_STYLE, actionDotCounts, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, needsApproval, resolveDisplayStatus, variancePercentTone } from '@/lib/g-ads-pacing';
 import { confidenceMix, reviewCounts, totalConversions } from '@/lib/kw-buildout';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
 import { KwBuildoutDetailPanel } from './KwBuildoutDetailPanel';
@@ -829,7 +829,14 @@ export function DataTable({
 
   // Render G Ads Pacing Table
   if (contentType === 'g-ads-pacing') {
-    const sortedData = sortData(gAdsPacing, sort.column as keyof GAdsPacingRecord, sort.direction);
+    // The Status column is derived (grace → New, else display_status column, else variance
+    // fallback), so it can't be sorted as a raw field — sort by the resolved tier rank instead.
+    const sortedData = sort.column === 'displayStatus'
+      ? [...gAdsPacing].sort((a, b) => {
+          const diff = displayStatusRank(a) - displayStatusRank(b);
+          return sort.direction === 'asc' ? diff : -diff;
+        })
+      : sortData(gAdsPacing, sort.column as keyof GAdsPacingRecord, sort.direction);
     const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
     const paginatedData = sortedData.slice(
       (currentPage - 1) * ITEMS_PER_PAGE,
@@ -850,8 +857,8 @@ export function DataTable({
                     </button>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    <button onClick={() => handleSort('severity')} className="flex items-center gap-1 hover:text-gray-900">
-                      Severity <SortIcon column="severity" />
+                    <button onClick={() => handleSort('displayStatus')} className="flex items-center gap-1 hover:text-gray-900">
+                      Status <SortIcon column="displayStatus" />
                     </button>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -899,7 +906,8 @@ export function DataTable({
                 ) : (
                   paginatedData.map((record) => {
                     const isExpanded = expandedGAdsRow === record.id;
-                    const sev = SEVERITY_STYLES[record.severity];
+                    const tier = resolveDisplayStatus(record);
+                    const status = tier === null ? DISPLAY_STATUS_NEW_STYLE : DISPLAY_STATUS_STYLES[tier];
                     const dots = actionDotCounts(record.campaigns);
                     // An on-track account can still get a day-of-week budget move. Only show the
                     // "On track" pill (and dim the row) when nothing actually moved the live budget.
@@ -926,7 +934,7 @@ export function DataTable({
                             {fmtCompactDate(record.runDate)}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`${sev.pill} ${sev.text}`} style={{
+                            <span className={`${status.pill} ${status.text}`} style={{
                               display: 'inline-block',
                               padding: '3px 10px',
                               borderRadius: 999,
@@ -934,7 +942,7 @@ export function DataTable({
                               fontWeight: 700,
                               letterSpacing: '0.04em',
                             }}>
-                              {sev.label}
+                              {status.label}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-900 font-medium">

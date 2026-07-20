@@ -338,6 +338,7 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
   const campaignProposedDailyIdx = idx('campaign_proposed_daily_budget');
   const recommendationIdx = idx('recommendation_type');
   const severityIdx = idx('severity');
+  const displayStatusIdx = idx('display_status');
   const approvalIdx = idx('approval_status');
   const reviewedByIdx = idx('reviewed_by');
   const notesIdx = idx('notes');
@@ -403,6 +404,9 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
         const sev = normalizeSeverity(row[severityIdx] || '');
         if (sev !== 'OK') existing.severity = sev;
       }
+      if (!existing.displayStatus) {
+        existing.displayStatus = (cell(row, displayStatusIdx) || '').trim();
+      }
       if (!existing.approvalStatus) {
         existing.approvalStatus = normalizeApprovalStatus(row[approvalIdx] || '');
       }
@@ -435,6 +439,7 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
         currentDailyBudget: toNum(row[accountCurrentDailyIdx]),
         proposedDailyBudget: toNum(row[accountProposedDailyIdx]),
         severity: normalizeSeverity(row[severityIdx] || ''),
+        displayStatus: (cell(row, displayStatusIdx) || '').trim(),
         approvalStatus: normalizeApprovalStatus(row[approvalIdx] || ''),
         reviewedBy: reviewedByIdx >= 0 ? (row[reviewedByIdx] || '') : '',
         notes: notesIdx >= 0 ? (row[notesIdx] || '') : '',
