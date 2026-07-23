@@ -85,6 +85,14 @@ export const DISPLAY_STATUS_NEW_STYLE = {
   text: 'text-slate-500',
 } as const;
 
+// Neutral pill for a fully-paused account (resolver returns 'Paused'). Same gray family as
+// "New" — a paused account has no pacing signal to convey — but a distinct label.
+export const DISPLAY_STATUS_PAUSED_STYLE = {
+  label: 'Paused',
+  pill: 'bg-slate-100 ring-1 ring-slate-200',
+  text: 'text-slate-500',
+} as const;
+
 // The five tiers, ordered for the filter dropdown (worst-over → worst-under).
 export const DISPLAY_STATUS_OPTIONS: DisplayStatus[] = [
   'Significantly Overpacing',
@@ -93,6 +101,11 @@ export const DISPLAY_STATUS_OPTIONS: DisplayStatus[] = [
   'Underpacing',
   'Significantly Underpacing',
 ];
+
+// Selectable Status-filter values. 'Paused' is a resolver override (not a variance tier), so it
+// lives alongside the five tiers here rather than in DISPLAY_STATUS_OPTIONS.
+export type StatusFilter = DisplayStatus | 'Paused';
+export const STATUS_FILTER_OPTIONS: StatusFilter[] = [...DISPLAY_STATUS_OPTIONS, 'Paused'];
 
 // Case-insensitive match of a raw sheet value to a known tier. Returns null for blank/unknown
 // so the caller can fall back to the variance-derived tier.
@@ -114,22 +127,43 @@ export function displayStatusFromVariance(variancePercent: number): DisplayStatu
   return mag > 20 ? 'Significantly Underpacing' : 'Underpacing';
 }
 
+// An account reads as "Paused" only when it has campaigns and every one is paused
+// (paused_by_agent from the Campaign Budget Status sheet). A partially-paused account keeps
+// pacing on its live campaigns and retains its normal status.
+export function isAccountPaused(record: Pick<GAdsPacingRecord, 'campaigns'>): boolean {
+  return record.campaigns.length > 0 && record.campaigns.every((c) => c.paused);
+}
+
 // Single source of truth for the visible client status. Precedence:
+//   0. every campaign paused → 'Paused' (overrides everything — no pacing signal applies)
 //   1. month-start grace → null (renders as the neutral "New" pill)
 //   2. the sheet's display_status column (authoritative when present)
 //   3. fallback: tier derived from month-to-date variance %
 export function resolveDisplayStatus(
   record: Pick<GAdsPacingRecord, 'campaigns' | 'displayStatus' | 'variancePercent'>,
-): DisplayStatus | null {
+): DisplayStatus | 'Paused' | null {
+  if (isAccountPaused(record)) return 'Paused';
   if (shouldShowGraceBanner(record)) return null;
   return normalizeDisplayStatus(record.displayStatus) ?? displayStatusFromVariance(record.variancePercent);
 }
 
-// Stable ordering for sorting the Status column. Grace/New sorts last.
+// Resolve straight to the pill style, collapsing the Paused / New / tier branches so the
+// render sites don't each re-implement the mapping.
+export function displayStatusPill(
+  record: Pick<GAdsPacingRecord, 'campaigns' | 'displayStatus' | 'variancePercent'>,
+): { label: string; pill: string; text: string } {
+  const tier = resolveDisplayStatus(record);
+  if (tier === 'Paused') return DISPLAY_STATUS_PAUSED_STYLE;
+  if (tier === null) return DISPLAY_STATUS_NEW_STYLE;
+  return DISPLAY_STATUS_STYLES[tier];
+}
+
+// Stable ordering for sorting the Status column. Grace/New and Paused sort last.
 export function displayStatusRank(
   record: Pick<GAdsPacingRecord, 'campaigns' | 'displayStatus' | 'variancePercent'>,
 ): number {
   const tier = resolveDisplayStatus(record);
+  if (tier === 'Paused') return DISPLAY_STATUS_OPTIONS.length + 1; // Paused → after New
   if (tier === null) return DISPLAY_STATUS_OPTIONS.length; // New → last
   return DISPLAY_STATUS_OPTIONS.indexOf(tier);
 }

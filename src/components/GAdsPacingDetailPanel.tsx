@@ -12,13 +12,11 @@ import {
   isSaveEnabled,
 } from '@/lib/budget-allocation';
 import {
-  DISPLAY_STATUS_STYLES,
-  DISPLAY_STATUS_NEW_STYLE,
   DOW_FLAG_LABELS,
   RECOMMENDATION_LABELS,
   SKIP_REASON_LABELS,
   appliedStatusLabel,
-  resolveDisplayStatus,
+  displayStatusPill,
   budgetLimitedCount,
   campaignBudgetView,
   changeTone,
@@ -524,9 +522,9 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudge
   // Hide the feedback form when there's nothing actionable to approve.
   const showFeedbackForm = !showGrace && !record.accountOnTrack && needsApproval(record);
 
-  // Client-facing pacing tier (account-level; campaigns inherit it). null → month-start "New".
-  const tier = resolveDisplayStatus(record);
-  const status = tier === null ? DISPLAY_STATUS_NEW_STYLE : DISPLAY_STATUS_STYLES[tier];
+  // Client-facing pacing tier (account-level; campaigns inherit it). Fully-paused → "Paused",
+  // month-start → "New", else the variance/column tier.
+  const status = displayStatusPill(record);
 
   return (
     <tr>
@@ -676,6 +674,9 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudge
                         <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>
                           <div className="flex items-center gap-1.5">
                             <span>{c.campaignName || '(unnamed)'}</span>
+                            {c.paused && (
+                              <span className="text-[11px] font-normal text-slate-400">paused</span>
+                            )}
                             {conflict && <ConflictIcon />}
                           </div>
                         </td>

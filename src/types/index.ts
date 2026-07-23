@@ -116,6 +116,10 @@ export interface GAdsPacingCampaign {
   sharedBudget: boolean;
   effectiveMode: 'account' | 'campaign' | null;
   statusReason: string;
+  // Backend-owned pause flag joined from the "Campaign Budget Status" sheet
+  // (`paused_by_agent` column, TRUE = paused). An account reads as "Paused" only when
+  // every campaign is paused (see isAccountPaused in g-ads-pacing.ts).
+  paused: boolean;
 }
 
 // Operator intent for an account's campaign-level budget split. Persisted in the

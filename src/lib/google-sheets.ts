@@ -394,6 +394,7 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       sharedBudget: false,
       effectiveMode: null,
       statusReason: '',
+      paused: false,
     };
 
     const existing = groups.get(key);
@@ -474,6 +475,7 @@ interface BudgetStatusEntry {
   effectiveMode: 'account' | 'campaign' | null;
   statusReason: string;
   lastEvaluated: string;
+  paused: boolean;
 }
 
 // Frontend-owned "Campaign Budgets" sheet: one row per campaign, account fields repeated.
@@ -530,6 +532,7 @@ function parseBudgetStatus(rows: string[][]): Map<string, BudgetStatusEntry> {
   const modeIdx = idx('effective_mode');
   const reasonIdx = idx('status_reason');
   const evaluatedIdx = idx('last_evaluated');
+  const pausedIdx = idx('paused_by_agent');
   const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
 
   rows.slice(1).forEach((row) => {
@@ -542,6 +545,7 @@ function parseBudgetStatus(rows: string[][]): Map<string, BudgetStatusEntry> {
       effectiveMode,
       statusReason: cell(row, reasonIdx) || '',
       lastEvaluated: cell(row, evaluatedIdx) || '',
+      paused: toBool(cell(row, pausedIdx)),
     });
   });
 
@@ -576,6 +580,7 @@ function applyBudgetConfigs(
       c.sharedBudget = status?.sharedBudget ?? false;
       c.effectiveMode = status?.effectiveMode ?? null;
       c.statusReason = status?.statusReason ?? '';
+      c.paused = status?.paused ?? false;
     });
 
     // Account rollup: campaign-level only when managed AND every eligible campaign is
