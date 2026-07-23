@@ -440,6 +440,7 @@ function buildCampaign(
     sharedBudget: false,
     effectiveMode: null,
     statusReason: '',
+    paused: false,
   };
 }
 
@@ -549,6 +550,18 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
         c.effectiveMode = 'account';
         c.statusReason = j === 0 ? 'On a shared Google Ads budget.' : '';
       });
+    }
+
+    // Seed paused campaigns so the "Paused" status is demoable against mock data:
+    //   i % 6 === 4 -> every campaign paused (account reads as "Paused", row dimmed)
+    //   i % 6 === 1 with >1 campaign -> only the first campaign paused (account keeps its
+    //     pacing status; the campaign shows a "paused" tag on expand)
+    if (scenario !== 'grace' && i % 6 === 4) {
+      campaigns.forEach((c) => {
+        c.paused = true;
+      });
+    } else if (i % 6 === 1 && campaigns.length > 1) {
+      campaigns[0].paused = true;
     }
 
     return {

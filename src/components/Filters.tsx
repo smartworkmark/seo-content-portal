@@ -1,8 +1,8 @@
 'use client';
 
-import { DateRange, ContentType, SavedFilter, FeatureFilters, DisplayStatus } from '@/types';
+import { DateRange, ContentType, SavedFilter, FeatureFilters } from '@/types';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { DISPLAY_STATUS_OPTIONS } from '@/lib/g-ads-pacing';
+import { STATUS_FILTER_OPTIONS, type StatusFilter } from '@/lib/g-ads-pacing';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { SavedFiltersBar } from './SavedFiltersBar';
 import { SaveFilterModal } from './SaveFilterModal';
@@ -23,8 +23,8 @@ interface FiltersProps {
   onDeleteFilter: (id: string) => void;
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
-  selectedStatuses?: DisplayStatus[];
-  onStatusesChange?: (statuses: DisplayStatus[]) => void;
+  selectedStatuses?: StatusFilter[];
+  onStatusesChange?: (statuses: StatusFilter[]) => void;
   selectedModes?: Array<'account' | 'campaign'>;
   onModesChange?: (modes: Array<'account' | 'campaign'>) => void;
   selectedConfidences?: string[];
@@ -138,9 +138,9 @@ export function Filters({
               <MultiSelectDropdown
                 label="Status"
                 pluralLabel="Statuses"
-                options={DISPLAY_STATUS_OPTIONS}
+                options={STATUS_FILTER_OPTIONS}
                 selected={selectedStatuses}
-                onChange={(s) => onStatusesChange(s as DisplayStatus[])}
+                onChange={(s) => onStatusesChange(s as StatusFilter[])}
               />
             </div>
           )}

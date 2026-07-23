@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, KwBuildoutRecord, KwBuildoutApprovedKey, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { DISPLAY_STATUS_STYLES, DISPLAY_STATUS_NEW_STYLE, actionDotCounts, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, needsApproval, resolveDisplayStatus, variancePercentTone } from '@/lib/g-ads-pacing';
+import { actionDotCounts, displayStatusPill, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, isAccountPaused, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
 import { confidenceMix, reviewCounts, totalConversions } from '@/lib/kw-buildout';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
 import { KwBuildoutDetailPanel } from './KwBuildoutDetailPanel';
@@ -906,17 +906,18 @@ export function DataTable({
                 ) : (
                   paginatedData.map((record) => {
                     const isExpanded = expandedGAdsRow === record.id;
-                    const tier = resolveDisplayStatus(record);
-                    const status = tier === null ? DISPLAY_STATUS_NEW_STYLE : DISPLAY_STATUS_STYLES[tier];
+                    const status = displayStatusPill(record);
                     const dots = actionDotCounts(record.campaigns);
                     // An on-track account can still get a day-of-week budget move. Only show the
                     // "On track" pill (and dim the row) when nothing actually moved the live budget.
+                    // A fully-paused account is likewise inert, so dim it too.
                     const onTrack = record.accountOnTrack && !hasAppliedChange(record);
+                    const dim = (onTrack || isAccountPaused(record)) && !isExpanded;
                     return (
                       <Fragment key={record.id}>
                         <tr
                           onClick={() => setExpandedGAdsRow(isExpanded ? null : record.id)}
-                          className={`border-b border-gray-100 transition-colors cursor-pointer ${isExpanded ? 'bg-slate-50' : 'hover:bg-gray-50'} ${onTrack && !isExpanded ? 'opacity-60' : ''}`}
+                          className={`border-b border-gray-100 transition-colors cursor-pointer ${isExpanded ? 'bg-slate-50' : 'hover:bg-gray-50'} ${dim ? 'opacity-60' : ''}`}
                         >
                           <td className="w-8 pl-3 py-3">
                             <span
@@ -969,20 +970,14 @@ export function DataTable({
                             {fmtSignedPercent(record.variancePercent)}
                           </td>
                           <td className="px-4 py-3 text-sm">
-                            {onTrack ? (
-                              <span className="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-2 py-0.5 rounded-full text-xs font-semibold">
-                                On track
-                              </span>
-                            ) : (
-                              <div className="flex items-center gap-1.5">
-                                {dots.red > 0 && <ActionDot color="#e11d48" count={dots.red} label="Pause" />}
-                                {dots.amber > 0 && <ActionDot color="#d97706" count={dots.amber} label="Approval" />}
-                                {dots.blue > 0 && <ActionDot color="#0ea5e9" count={dots.blue} label="Auto" />}
-                                {dots.red === 0 && dots.amber === 0 && dots.blue === 0 && (
-                                  <span className="text-xs text-gray-400">—</span>
-                                )}
-                              </div>
-                            )}
+                            {/* Movement-based action dots only. When no campaign needs an action
+                                the cell is empty — the account's state is already conveyed by the
+                                Status column (e.g. "On Track"). */}
+                            <div className="flex items-center gap-1.5">
+                              {dots.red > 0 && <ActionDot color="#e11d48" count={dots.red} label="Pause" />}
+                              {dots.amber > 0 && <ActionDot color="#d97706" count={dots.amber} label="Approval" />}
+                              {dots.blue > 0 && <ActionDot color="#0ea5e9" count={dots.blue} label="Auto" />}
+                            </div>
                           </td>
                           <td className="px-4 py-3 text-sm whitespace-nowrap">
                             {record.approvalStatus === '' && needsApproval(record) && (

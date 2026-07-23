@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview, DisplayStatus } from '@/types';
-import { resolveDisplayStatus } from '@/lib/g-ads-pacing';
+import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview } from '@/types';
+import { resolveDisplayStatus, type StatusFilter } from '@/lib/g-ads-pacing';
 import { flagsList } from '@/lib/kw-buildout';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
@@ -42,7 +42,7 @@ export default function Dashboard() {
   const [selectedPractices, setSelectedPractices] = useState<string[]>([]);
   const [selectedDateRange, setSelectedDateRange] = useState<DateRange>('7d');
   const [featureFilters, setFeatureFilters] = useState<FeatureFilters>({});
-  const [selectedStatuses, setSelectedStatuses] = useState<DisplayStatus[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<StatusFilter[]>([]);
   const [selectedModes, setSelectedModes] = useState<Array<'account' | 'campaign'>>([]);
   const [selectedConfidences, setSelectedConfidences] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -205,6 +205,8 @@ export default function Dashboard() {
     ? filteredGAdsPacing
     : filteredGAdsPacing.filter((r) => {
         const tier = resolveDisplayStatus(r);
+        // null ("New") isn't a selectable option, so those rows drop out when a specific status
+        // is chosen. 'Paused' IS selectable and matches here.
         return tier !== null && selectedStatuses.includes(tier);
       });
 
