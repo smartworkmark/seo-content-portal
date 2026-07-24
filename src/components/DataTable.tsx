@@ -907,7 +907,7 @@ export function DataTable({
                   paginatedData.map((record) => {
                     const isExpanded = expandedGAdsRow === record.id;
                     const status = displayStatusPill(record);
-                    const dots = actionDotCounts(record.campaigns);
+                    const dots = actionDotCounts(record.campaigns, record.approvalStatus);
                     // An on-track account can still get a day-of-week budget move. Only show the
                     // "On track" pill (and dim the row) when nothing actually moved the live budget.
                     // A fully-paused account is likewise inert, so dim it too.
@@ -976,6 +976,7 @@ export function DataTable({
                             <div className="flex items-center gap-1.5">
                               {dots.red > 0 && <ActionDot color="#e11d48" count={dots.red} label="Pause" />}
                               {dots.amber > 0 && <ActionDot color="#d97706" count={dots.amber} label="Approval" />}
+                              {dots.green > 0 && <ActionDot color="#059669" count={dots.green} label="Approved" />}
                               {dots.blue > 0 && <ActionDot color="#0ea5e9" count={dots.blue} label="Auto" />}
                             </div>
                           </td>

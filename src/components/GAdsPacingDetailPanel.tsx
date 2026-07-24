@@ -133,9 +133,12 @@ function Banner({
 function statusPillStyle(label: string): { pill: string; text: string } {
   switch (label) {
     case 'Pause (pending)':
+    case 'Rejected':
       return { pill: 'bg-rose-50 ring-1 ring-rose-200', text: 'text-rose-700' };
-    case 'Pending approval':
+    case 'Needs approval':
       return { pill: 'bg-amber-50 ring-1 ring-amber-200', text: 'text-amber-700' };
+    case 'Approved':
+      return { pill: 'bg-emerald-50 ring-1 ring-emerald-200', text: 'text-emerald-700' };
     case 'No change':
       return { pill: 'bg-slate-100 ring-1 ring-slate-200', text: 'text-slate-600' };
     default: // Auto-applied
@@ -648,9 +651,13 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudge
                       legacyNoChange && c.skipReason ? SKIP_REASON_LABELS[c.skipReason] : null;
 
                     // New model: status pill + why-line driven by the actual applied movement.
-                    const statusLabel = appliedStatusLabel(view);
+                    // Approval/pause rows are approval-aware (see appliedStatusLabel).
+                    const pending = view.mode === 'approval' || view.mode === 'pause';
+                    const statusLabel = appliedStatusLabel(view, record.approvalStatus);
                     const statusStyle = statusPillStyle(statusLabel);
                     const whyParts: string[] = [];
+                    // An un-actioned pending row shows the if-approved target, so mark it hypothetical.
+                    if (pending && record.approvalStatus === '') whyParts.push('if approved');
                     if (view.direction !== 'flat' && showDow) whyParts.push('day-of-week shaping');
                     if (c.autoDecreasePromoted) {
                       whyParts.push(
@@ -659,16 +666,31 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudge
                           : 'auto-applied decrease',
                       );
                     }
-                    // Skip reason explains genuine no-movement rows only — never shown beside a real change.
-                    if (view.direction === 'flat' && c.skipReason) {
+                    // Skip reason explains genuine no-movement rows only — never shown beside a real
+                    // change, nor beside a pending row (whose number is the pre-approval proposal).
+                    if (!pending && view.direction === 'flat' && c.skipReason) {
                       const s = SKIP_REASON_LABELS[c.skipReason];
                       if (s) whyParts.push(s);
                     }
 
                     // Applied/proposed amount + change %, branching on whether we have a final budget.
-                    const showDash = view.hasFinal ? view.direction === 'flat' : legacyNoChange;
-                    const amount = view.hasFinal ? view.target : c.proposedDaily;
-                    const changePct = view.hasFinal ? view.deltaPct : legacyChange;
+                    // Pending approval/pause rows have no applied movement yet (final == current), which
+                    // would dash out the very change being approved — show the if-approved target instead.
+                    const showDash = pending
+                      ? false
+                      : view.hasFinal
+                        ? view.direction === 'flat'
+                        : legacyNoChange;
+                    const amount = pending
+                      ? view.ifApprovedTarget
+                      : view.hasFinal
+                        ? view.target
+                        : c.proposedDaily;
+                    const changePct = pending
+                      ? view.ifApprovedDeltaPct
+                      : view.hasFinal
+                        ? view.deltaPct
+                        : legacyChange;
                     return (
                       <tr key={c.campaignId || i} style={{ borderTop: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>

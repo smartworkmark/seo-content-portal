@@ -1,4 +1,5 @@
 import type {
+  ApprovalStatus,
   Classification,
   DisplayStatus,
   GAdsPacingCampaign,
@@ -224,6 +225,13 @@ export interface CampaignBudgetView {
   target: number;        // finalDailyBudget when present, else proposedDaily
   deltaPct: number;      // (target - current) / current * 100
   direction: 'up' | 'down' | 'flat';
+  // What WOULD be pushed if a pending approval/pause row were approved. On those rows the
+  // workflow hasn't applied anything yet, so final_daily_budget still equals current — which
+  // would collapse target/deltaPct/direction to "flat" and hide the very change being approved.
+  // These two carry the pre-approval intent so the UI can show it. NOTE: direction/deltaPct
+  // must keep meaning *actually applied* movement — hasAppliedChange() depends on it.
+  ifApprovedTarget: number;   // proposedDaily
+  ifApprovedDeltaPct: number; // (proposedDaily - current) / current * 100
 }
 
 export function campaignBudgetView(
@@ -249,13 +257,38 @@ export function campaignBudgetView(
   const direction: CampaignBudgetView['direction'] =
     Math.abs(delta) < 1 && Math.abs(deltaPct) < 1 ? 'flat' : delta > 0 ? 'up' : 'down';
 
-  return { hasFinal, mode, current, target, deltaPct, direction };
+  // Same divide-by-zero guard as deltaPct, against the pre-approval proposal.
+  const ifApprovedTarget = campaign.proposedDaily;
+  const ifApprovedDelta = ifApprovedTarget - current;
+  const ifApprovedDeltaPct =
+    current > 0 ? (ifApprovedDelta / current) * 100 : ifApprovedTarget > 0 ? 100 : 0;
+
+  return {
+    hasFinal,
+    mode,
+    current,
+    target,
+    deltaPct,
+    direction,
+    ifApprovedTarget,
+    ifApprovedDeltaPct,
+  };
 }
 
 // Headline status pill — derived from the actual movement, not the raw label.
-export function appliedStatusLabel(view: CampaignBudgetView): string {
-  if (view.mode === 'pause') return 'Pause (pending)';
-  if (view.mode === 'approval') return 'Pending approval';
+// Approval/pause rows are ALSO approval-aware: `recommendation_type` records what the engine
+// decided on that run and is never rewritten, so once the operator approves (and the workflow
+// actions the budget immediately) the row must stop advertising "pending". The account-level
+// approval_status is the only signal for that.
+export function appliedStatusLabel(
+  view: CampaignBudgetView,
+  approvalStatus: ApprovalStatus = '',
+): string {
+  if (view.mode === 'pause' || view.mode === 'approval') {
+    if (approvalStatus === 'Approved') return 'Approved';
+    if (approvalStatus === 'Rejected') return 'Rejected';
+    return view.mode === 'pause' ? 'Pause (pending)' : 'Needs approval';
+  }
   if (view.direction === 'flat') return 'No change';
   return 'Auto-applied';
 }
@@ -264,19 +297,26 @@ export interface ActionDotCounts {
   red: number;
   amber: number;
   blue: number;
+  green: number;
 }
 
 // Movement-based: red = pending pause, amber = pending approval, blue = an auto change
-// that actually moves the live budget. Flat/no-change rows contribute nothing.
+// that actually moves the live budget, green = an approval/pause the operator already actioned.
+// Flat/no-change rows contribute nothing, and so do rejected rows (nothing outstanding, nothing
+// applied). Approval/pause rows key off the account-level approval_status — see appliedStatusLabel.
 export function actionDotCounts(
   campaigns: GAdsPacingCampaign[],
+  approvalStatus: ApprovalStatus = '',
 ): ActionDotCounts {
-  const counts: ActionDotCounts = { red: 0, amber: 0, blue: 0 };
+  const counts: ActionDotCounts = { red: 0, amber: 0, blue: 0, green: 0 };
   for (const c of campaigns) {
     const view = campaignBudgetView(c);
-    if (view.mode === 'pause') counts.red += 1;
-    else if (view.mode === 'approval') counts.amber += 1;
-    else if (view.direction !== 'flat') counts.blue += 1;
+    if (view.mode === 'pause' || view.mode === 'approval') {
+      if (approvalStatus === 'Approved') counts.green += 1;
+      else if (approvalStatus === 'Rejected') continue;
+      else if (view.mode === 'pause') counts.red += 1;
+      else counts.amber += 1;
+    } else if (view.direction !== 'flat') counts.blue += 1;
   }
   return counts;
 }
