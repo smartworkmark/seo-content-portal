@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview } from '@/types';
-import { resolveDisplayStatus, type StatusFilter } from '@/lib/g-ads-pacing';
+import { needsApproval, resolveDisplayStatus, type StatusFilter } from '@/lib/g-ads-pacing';
 import { flagsList } from '@/lib/kw-buildout';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
@@ -44,6 +44,7 @@ export default function Dashboard() {
   const [featureFilters, setFeatureFilters] = useState<FeatureFilters>({});
   const [selectedStatuses, setSelectedStatuses] = useState<StatusFilter[]>([]);
   const [selectedModes, setSelectedModes] = useState<Array<'account' | 'campaign'>>([]);
+  const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [selectedConfidences, setSelectedConfidences] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
@@ -125,7 +126,7 @@ export default function Dashboard() {
     } else if (activeTab === 'g-ads-pacing') {
       // Attach the resolved client-facing status so the CSV matches the on-screen label
       // (severity is intentionally omitted — it's an internal signal now).
-      const pacingForExport = modeFilteredGAdsPacing.map((r) => ({
+      const pacingForExport = reviewFilteredGAdsPacing.map((r) => ({
         ...r,
         status: resolveDisplayStatus(r) ?? 'New',
       }));
@@ -211,10 +212,16 @@ export default function Dashboard() {
       });
 
   // Mode filter — composed on top of the status filter. Empty selection = show all.
-  // This is the most-derived pacing variable; it feeds both the table and CSV export.
   const modeFilteredGAdsPacing = selectedModes.length === 0
     ? statusFilteredGAdsPacing
     : statusFilteredGAdsPacing.filter((r) => selectedModes.includes(r.effectiveMode));
+
+  // Feedback filter — "Needs review" narrows to accounts awaiting feedback (same definition as
+  // the table's Feedback column). This is the most-derived pacing variable; it feeds both the
+  // table and CSV export.
+  const reviewFilteredGAdsPacing = !needsReviewOnly
+    ? modeFilteredGAdsPacing
+    : modeFilteredGAdsPacing.filter((r) => r.approvalStatus === '' && needsApproval(r));
 
   // Confidence filter — applied as a final pass on top of practice+date filtered records.
   // A batch is kept if any of its keywords match a selected confidence. Empty = show all.
@@ -246,6 +253,7 @@ export default function Dashboard() {
     if (tab !== 'g-ads-pacing') {
       setSelectedStatuses([]);
       setSelectedModes([]);
+      setNeedsReviewOnly(false);
     }
     if (tab !== 'kw-buildout') setSelectedConfidences([]);
   };
@@ -420,6 +428,8 @@ export default function Dashboard() {
               onStatusesChange={setSelectedStatuses}
               selectedModes={selectedModes}
               onModesChange={setSelectedModes}
+              needsReviewOnly={needsReviewOnly}
+              onNeedsReviewChange={setNeedsReviewOnly}
               selectedConfidences={selectedConfidences}
               onConfidencesChange={setSelectedConfidences}
             />
@@ -458,7 +468,7 @@ export default function Dashboard() {
             gmbPosts={filteredGmbPosts}
             replies={filteredReplies}
             negKeywordReviews={filteredNegKeywords}
-            gAdsPacing={modeFilteredGAdsPacing}
+            gAdsPacing={reviewFilteredGAdsPacing}
             kwBuildout={confidenceFilteredKwBuildout}
             isLoading={isLoading}
             isErrorMode={showErrors}

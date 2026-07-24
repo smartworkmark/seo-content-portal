@@ -27,6 +27,8 @@ interface FiltersProps {
   onStatusesChange?: (statuses: StatusFilter[]) => void;
   selectedModes?: Array<'account' | 'campaign'>;
   onModesChange?: (modes: Array<'account' | 'campaign'>) => void;
+  needsReviewOnly?: boolean;
+  onNeedsReviewChange?: (v: boolean) => void;
   selectedConfidences?: string[];
   onConfidencesChange?: (confidences: string[]) => void;
 }
@@ -57,6 +59,8 @@ export function Filters({
   onStatusesChange,
   selectedModes = [],
   onModesChange,
+  needsReviewOnly = false,
+  onNeedsReviewChange,
   selectedConfidences = [],
   onConfidencesChange,
 }: FiltersProps) {
@@ -156,6 +160,33 @@ export function Filters({
                 selected={selectedModes.map(modeValueToLabel)}
                 onChange={(labels) => onModesChange(labels.map(modeLabelToValue))}
               />
+            </div>
+          )}
+
+          {/* Feedback Filter (All / Needs review) — G Ads Pacing tab only */}
+          {contentType === 'g-ads-pacing' && onNeedsReviewChange && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 whitespace-nowrap">Feedback:</label>
+              <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                {([
+                  { value: false, label: 'All' },
+                  { value: true, label: 'Needs review' },
+                ] as const).map((option) => (
+                  <button
+                    key={option.label}
+                    onClick={() => onNeedsReviewChange(option.value)}
+                    className={`
+                      px-3 py-1.5 text-sm rounded-md transition-colors
+                      ${needsReviewOnly === option.value
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-600 hover:bg-indigo-50 hover:text-indigo-900'
+                      }
+                    `}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

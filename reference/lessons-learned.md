@@ -312,6 +312,31 @@ Added `needsApproval(record: GAdsPacingRecord): boolean` helper in `src/lib/g-ad
 
 ---
 
+## 2026-07-23 — PR "not mergeable" from a Duplicated Commit
+
+### Symptoms
+- `gh pr merge` failed with `Pull request #4 is not mergeable: the merge commit cannot be cleanly created`, even though the feature branch had been rebased on a recent `main` and had only touched files nobody else was editing.
+- `git log main..branch` showed **two** commits, one of which looked like work that was already released.
+
+### Root Cause
+The branch's older commit (`38c0ab0`) had already been merged into `main` **under a different SHA** (`f79cf64`) via an earlier squash/merge PR. Git saw two independent commits making the *same* edits to the same lines, so the three-way merge conflicted on every hunk. `git diff 38c0ab0 f79cf64 -- src/` returned **empty**, proving the content was identical and only the SHA differed.
+
+### Fix
+Rebased the branch onto `main` while **dropping the already-merged commit**, replaying only the genuinely new work:
+
+```bash
+git diff <local-sha> <main-sha> -- src/    # empty output ⇒ same content, different SHA
+git rebase --onto origin/main <already-merged-sha> <branch>
+git push --force-with-lease origin <branch>
+```
+
+The PR then merged cleanly with a single new commit.
+
+### Rule to Remember
+**A merge conflict on a "clean" branch usually means duplicated commits, not genuinely competing edits.** Before resolving hunks by hand, check whether the conflicting commit is already on `main` under a different SHA — squash-merges and re-created PRs both cause this. `git diff <local> <main> -- src/` returning empty is the tell. The fix is `git rebase --onto origin/main <already-merged-sha>` to drop the duplicate, **never** hand-resolving the conflict (which would re-apply the same change twice). Always use `--force-with-lease`, never bare `--force`, when force-pushing a rebased branch.
+
+---
+
 ## General Debugging Tips
 
 - **Check server logs first** — `GET /` repeating in the Next.js log is a sign of a reload loop, not normal behaviour.
