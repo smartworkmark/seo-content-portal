@@ -337,6 +337,32 @@ The PR then merged cleanly with a single new commit.
 
 ---
 
+## 2026-07-23 — Campaign Rows Stuck on "Pending Approval" After the Account Was Approved
+
+### Symptoms
+- The account's **Feedback** column read **Approved**, but every campaign inside the expanded panel still read **Pending approval** — indefinitely, with no self-correction.
+- The account's amber "pending approval" action dot stayed amber forever.
+- Worse: on those same pending rows, **Applied /day and Change both rendered `—`**, so the reviewer was asked to approve a budget change without being shown what the change was. Most visible on campaigns moving *counter* to the account direction (an increase while the account is decreasing) — precisely the case that routes to approval.
+
+### Root Cause
+Two independent problems that looked like one:
+
+1. **Two unrelated sources of truth.** The account label comes from the `approval_status` column (human feedback, written back by the Make.com webhook). The campaign pill and the action dots came from `appliedStatusLabel(campaignBudgetView(c))` / `actionDotCounts(campaigns)`, which only ever saw `recommendation_type`. `recommendation_type` is a record of what the pacing engine decided **on that run date** and is never rewritten — so it advertises "pending" forever. Approving in the portal makes the workflow update the sheet **and action the Google Ads budget immediately**, so the pill was not merely stale, it was contradicting a change already live in Google Ads.
+
+2. **`final == current` collapsed the numbers.** On a not-yet-approved row the workflow hasn't applied anything, so `final_daily_budget` still equals `campaign_current_daily_budget`. In `campaignBudgetView()` that yields `target = final` → `delta = 0` → `direction = 'flat'` → `showDash = true`, dashing out both Applied /day and Change. `CLAUDE.md` had documented the intent ("Applied /day = final, **or the if-approved target for approval/pause rows**") but the code never implemented that second clause.
+
+### Fix
+- Threaded the account's `approval_status` into both helpers: `appliedStatusLabel(view, approvalStatus)` and `actionDotCounts(campaigns, approvalStatus)`. Approval/pause rows now read **Needs approval** (amber) → **Approved** (emerald) / **Rejected** (rose), and the amber dot turns **green** once actioned.
+- Added `ifApprovedTarget` (= `proposedDaily`) and `ifApprovedDeltaPct` to `CampaignBudgetView`; the panel uses them whenever `mode` is `'approval'` or `'pause'`, with an italic `if approved` subtext, so pending rows always show the number being approved.
+- **Deliberately did NOT** repoint `target`/`deltaPct`/`direction` at the proposal, even though that would have been a smaller diff.
+
+### Rule to Remember
+**`direction`/`deltaPct`/`target` mean *actually applied* movement (`current → final`) — never the proposal.** `hasAppliedChange()`, and therefore on-track row dimming, depends on that meaning; repointing them at the proposal would make pending approvals count as applied changes and un-dim on-track rows. Add new fields for hypothetical values instead of overloading existing ones.
+
+And more generally: **when a status label never self-corrects, look for two independent sources of truth.** A column written by the *engine* (`recommendation_type`) and a column written by a *human* (`approval_status`) describe different things and will silently disagree forever. Any UI that mixes them must read both. Both new params default to `''`, so a forgotten argument silently restores the old stale behavior — always pass `record.approvalStatus`.
+
+---
+
 ## General Debugging Tips
 
 - **Check server logs first** — `GET /` repeating in the Next.js log is a sign of a reload loop, not normal behaviour.
