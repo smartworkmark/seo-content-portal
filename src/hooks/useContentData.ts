@@ -35,6 +35,7 @@ interface UseContentDataReturn {
   filteredReplies: GmbReply[];
   filteredNegKeywords: NegKeywordReview[];
   filteredGAdsPacing: GAdsPacingRecord[];
+  filteredPausedGAdsPacing: GAdsPacingRecord[];
   filteredKwBuildout: KwBuildoutRecord[];
   filterCounts: { blogs: number; gmbPosts: number; replies: number; negKeywords: number; gAdsPacing: number; kwBuildout: number };
   clientSummary: SummaryData | null;
@@ -115,6 +116,12 @@ export function useContentData(
     ? filterGAdsPacing(data.gAdsPacing, selectedPractices, selectedDateRange)
     : [];
 
+  const filteredPausedGAdsPacing = data
+    ? (data.pausedGAdsPacing ?? []).filter(
+        (record) => selectedPractices.length === 0 || selectedPractices.includes(record.practiceName),
+      )
+    : [];
+
   const filteredKwBuildout = data
     ? filterKwBuildout(data.kwBuildout, selectedPractices, selectedDateRange)
     : [];
@@ -182,13 +189,15 @@ export function useContentData(
     // Optimistically update local state so the row reflects the new status without waiting for re-fetch
     setData((prev) => {
       if (!prev) return prev;
+      const updateRows = (records: GAdsPacingRecord[]) => records.map((r) =>
+        r.id === record.id
+          ? { ...r, approvalStatus: payload.approvalStatus, reviewedBy: payload.reviewedBy, notes: payload.notes }
+          : r
+      );
       return {
         ...prev,
-        gAdsPacing: prev.gAdsPacing.map((r) =>
-          r.id === record.id
-            ? { ...r, approvalStatus: payload.approvalStatus, reviewedBy: payload.reviewedBy, notes: payload.notes }
-            : r
-        ),
+        gAdsPacing: updateRows(prev.gAdsPacing),
+        pausedGAdsPacing: updateRows(prev.pausedGAdsPacing ?? []),
       };
     });
   }, []);
@@ -227,22 +236,24 @@ export function useContentData(
     const dollarsByCampaign = new Map(payload.campaigns.map((c) => [c.campaign_id, c.budget_dollars]));
     setData((prev) => {
       if (!prev) return prev;
+      const updateRows = (records: GAdsPacingRecord[]) => records.map((r) =>
+        r.googleAdsId === record.googleAdsId
+          ? {
+              ...r,
+              budgetConfig: payload.managed
+                ? { googleAdsId: r.googleAdsId, managed: true, updatedBy: payload.updatedBy, updatedAt: r.budgetConfig?.updatedAt ?? '' }
+                : null,
+              campaigns: r.campaigns.map((c) => ({
+                ...c,
+                budgetDollars: payload.managed ? (dollarsByCampaign.get(c.campaignId) ?? null) : null,
+              })),
+            }
+          : r
+      );
       return {
         ...prev,
-        gAdsPacing: prev.gAdsPacing.map((r) =>
-          r.googleAdsId === record.googleAdsId
-            ? {
-                ...r,
-                budgetConfig: payload.managed
-                  ? { googleAdsId: r.googleAdsId, managed: true, updatedBy: payload.updatedBy, updatedAt: r.budgetConfig?.updatedAt ?? '' }
-                  : null,
-                campaigns: r.campaigns.map((c) => ({
-                  ...c,
-                  budgetDollars: payload.managed ? (dollarsByCampaign.get(c.campaignId) ?? null) : null,
-                })),
-              }
-            : r,
-        ),
+        gAdsPacing: updateRows(prev.gAdsPacing),
+        pausedGAdsPacing: updateRows(prev.pausedGAdsPacing ?? []),
       };
     });
   }, []);
@@ -330,6 +341,7 @@ export function useContentData(
     filteredReplies,
     filteredNegKeywords,
     filteredGAdsPacing,
+    filteredPausedGAdsPacing,
     filteredKwBuildout,
     filterCounts,
     clientSummary,

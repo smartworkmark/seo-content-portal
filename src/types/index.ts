@@ -120,6 +120,7 @@ export interface GAdsPacingCampaign {
   // (`paused_by_agent` column, TRUE = paused). An account reads as "Paused" only when
   // every campaign is paused (see isAccountPaused in g-ads-pacing.ts).
   paused: boolean;
+  pausedDate: string;
 }
 
 // Operator intent for an account's campaign-level budget split. Persisted in the
@@ -135,6 +136,12 @@ export interface AccountBudgetConfig {
 export interface GAdsPacingRecord {
   id: string;
   runDate: string;
+  // Account-level pause event date populated only on the dedicated current-month paused
+  // snapshot. Normal pacing rows leave it undefined.
+  pausedDate?: string;
+  // Pause event dates for this Google Ads account, joined from Campaign Budget Status.
+  // Historical status resolution uses these only when one exactly matches runDate.
+  pauseDates?: string[];
   runId: string;
   practiceName: string;
   googleAdsId: string;
@@ -267,6 +274,7 @@ export interface ContentResponse {
   replies: GmbReply[];
   negKeywordReviews: NegKeywordReview[];
   gAdsPacing: GAdsPacingRecord[];
+  pausedGAdsPacing: GAdsPacingRecord[];
   kwBuildout: KwBuildoutRecord[];
   summary: SummaryData;
   practices: string[];
