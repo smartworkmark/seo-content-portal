@@ -1,0 +1,3106 @@
+{
+  "name": "Google Ads Pacing Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -464,
+        96
+      ],
+      "id": "3195d421-5dd7-4667-ae06-531d3160311a",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.hubapi.com/crm/v3/objects/companies/search",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "hubspotOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filterGroups\": [\n    {\n      \"filters\": [\n        { \"propertyName\": \"google_ads_id\", \"operator\": \"HAS_PROPERTY\" },\n        { \"propertyName\": \"google_ads_budget\", \"operator\": \"HAS_PROPERTY\" },\n        { \"propertyName\": \"google_ads_budget\", \"operator\": \"NEQ\", \"value\": 0 },\n        {\n          \"propertyName\": \"customer_type\",\n          \"operator\": \"IN\",\n          \"values\": [\"Active\", \"Trial\"]\n        },\n        { \"propertyName\": \"g_ads_pacing_agent\", \"operator\": \"EQ\", \"value\": \"Yes\" }\n      ]\n    }\n  ],\n  \"properties\": [\n    \"name\",\n    \"city\",\n    \"state\",\n    \"website\",\n    \"customer_type\",\n    \"google_ads_id\",\n    \"google_ads___main_focused_services\",\n    \"google_negative_keywords\",\n    \"google_ads_budget\"\n  ],\n  \"limit\": 200,\n  \"sorts\": [\n    {\n      \"propertyName\": \"name\",\n      \"direction\": \"ASCENDING\"\n    }\n  ]\n}",
+        "options": {
+          "pagination": {
+            "pagination": {
+              "parameters": {
+                "parameters": [
+                  {
+                    "type": "body",
+                    "name": "after",
+                    "value": "={{ $response.body.paging.next.after }}"
+                  }
+                ]
+              },
+              "limitPagesFetched": true,
+              "maxRequests": 2,
+              "requestInterval": 1000
+            }
+          }
+        }
+      },
+      "id": "0ae5c5f3-af57-4233-b95d-3e01bdc4a3ea",
+      "name": "Search HubSpot Companies",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -240,
+        176
+      ],
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "hubspotOAuth2Api": {
+          "id": "x4Y8e2VXJEL0U4Wt",
+          "name": "Mark's HS OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "14304d2b-3cc6-4580-986e-bc10943029db",
+              "name": "adsId",
+              "value": "={{ $json.results.properties.google_ads_id.replaceAll('-','').trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "f5bacb53-ca34-40c4-8b68-37aed7160faf",
+              "name": "practiceName",
+              "value": "={{ $json.results.properties.name }}",
+              "type": "string"
+            },
+            {
+              "id": "eb57df35-2b12-419c-b7b2-e3be7729f03d",
+              "name": "monthlyBudget",
+              "value": "={{ $json.results.properties.google_ads_budget }}",
+              "type": "string"
+            },
+            {
+              "id": "38ad2dc6-aedf-42d0-ad98-809babe2df7c",
+              "name": "hubspotId",
+              "value": "={{ $json.results.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        656,
+        176
+      ],
+      "id": "e27ff9b3-7db5-4ec1-a9a0-d7db6d32641e",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "maxItems": 400
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        208,
+        176
+      ],
+      "id": "462977ed-55c7-4fe4-9309-170b239b6e78",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -16,
+        176
+      ],
+      "id": "eb87e457-6713-441e-92c5-b6b12192e91d",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Edit Fields').item.json.adsId }}/googleAds:searchStream",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"query\": \"SELECT campaign.id, campaign.name, campaign.status, campaign_budget.amount_micros, metrics.cost_micros, metrics.search_budget_lost_impression_share, customer.currency_code FROM campaign WHERE campaign.status = 'ENABLED' AND segments.date DURING THIS_MONTH\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        480
+      ],
+      "id": "ecc9257c-ef7e-4252-b2a2-0cf3243c880f",
+      "name": "Budget pacing (current month spend)1",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const today = new Date();\nconst daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();\nconst dayOfMonth = today.getDate();\nconst daysRemaining = daysInMonth - dayOfMonth + 1;\nconst expectedPaceRatio = dayOfMonth / daysInMonth;\nconst todayISO = today.toISOString().split('T')[0];\n// === DAY-OF-WEEK BUDGET MULTIPLIERS (Bill's Final v2) ===\n// JS getDay(): 0 = Sunday ... 6 = Saturday\nconst DOW_MULTIPLIERS = {\n  0: -0.26, // Sunday    — weakest day (-36%)\n  1:  0.20, // Monday    — strongest day (+22.5% lift)\n  2: -0.04, // Tuesday   — below average, good CPA\n  3:  0.05, // Wednesday — solid day\n  4:  0.08, // Thursday  — very efficient\n  5:  0.03, // Friday    — above average\n  6: -0.18  // Saturday  — weak day (-22.9%)\n};\n// Date the DOW system first goes live. Budgets set before this date were\n// NOT day-of-week shaped, so yesterday-multiplier de-normalization is\n// skipped for any day before it.\nconst DOW_ENABLED_SINCE = '2026-06-16'; // <-- SET TO ACTUAL GO-LIVE DATE\nconst pacingItem = $input.item.json;\nconst editItem = $('Edit Fields').item.json;\nconst practiceName = editItem.practiceName || 'Unknown practice';\nconst adsId = editItem.adsId;\nconst hubspotMonthlyBudget = Number(editItem.monthlyBudget || 0);\nconst rawResults = Array.isArray(pacingItem.results) ? pacingItem.results : [];\n\nconst adsIdForSpend = String(adsId || '').trim();\n// Enabled-only sum = the OLD (under-counting) number. Kept as a safe fallback.\nconst enabledCampaignSpend = rawResults.reduce((sum, row) =>\n  sum + Number(row.metrics?.costMicros || 0) / 1_000_000, 0);\n// True account MTD spend across ALL statuses (enabled + paused + removed).\n// Uses .all() — Account Spend is a SIBLING branch off Edit Fields, so .item\n// cannot resolve paired lineage and throws. Matched explicitly on customer ID\n// so item order can never misattribute spend to the wrong account.\n// CRITICAL: on any failure, fall back to the enabled sum — NEVER 0. A false 0\n// reads as massive underpace and can trigger an auto-increase (Rule 3).\nlet accountTotalSpend = enabledCampaignSpend;\nlet spendSource = 'FALLBACK_NO_MATCH';\ntry {\n  const spendItems = $('Account Spend (all statuses)').all();\n  for (const it of spendItems) {\n    const rows = (it.json && it.json.results) || [];\n    const match = rows.find(row =>\n      String(row.customer?.resourceName || '').split('/')[1] === adsIdForSpend\n    );\n    if (match) {\n      accountTotalSpend = Number(match.metrics?.costMicros || 0) / 1_000_000;\n      spendSource = 'ACCOUNT_TOTAL';\n      break;\n    }\n  }\n} catch (e) {\n  spendSource = 'FALLBACK_REFERENCE_FAILED';\n}\nconst totalActualSpend = accountTotalSpend;\n\n// ============================================================================\n// === PHASE 4 — CAMPAIGN-LEVEL BUDGET CONFIG + ELIGIBILITY GATE ============\n// ----------------------------------------------------------------------------\n// Reads the operator-set Campaign Budgets config (executeOnce) and decides,\n// for THIS account, whether it is eligible for campaign-level steering.\n//\n// north star: reduce complexity + keep operator control. `budget_dollars`\n// is READ-ONLY input — never written back. The only thing the agent ever\n// mutates is the Google Ads daily budget (as it already does today).\n//\n// XOR: an account either steers per-campaign OR at account level, never both.\n// Any budget mismatch (coverage incomplete / shared budget / drift /\n// campaign-target sum overshoots the account budget) → fall back to\n// account-level pacing and record a status_reason. Single fallback path,\n// no rescaling, no exceptions.\n// ============================================================================\nlet campaignBudgetConfig = [];\ntry {\n  // executeOnce node upstream of this one; reads the whole Campaign Budgets tab.\n  campaignBudgetConfig = $('Read Budget Config (Pacing)').all().map(i => i.json);\n} catch (e) {\n  campaignBudgetConfig = []; // config read unavailable → treat as account-level\n}\n\nconst adsIdStr = String(adsId || '').trim();\n\n// Build a per-campaign config map scoped to THIS account.\nconst configByCampaign = {};\nlet accountHasManagedIntent = false;\nfor (const r of campaignBudgetConfig) {\n  if (!r || r.campaign_id == null || String(r.campaign_id).trim() === '') continue;\n  // Tombstoned config row (campaign removed in Google Ads). Skip entirely so it\n  // never enters configByCampaign / configuredCampaignIds and never trips the\n  // Phase 4 drift check. Missing/blank `active` is treated as TRUE so pre-migration\n  // rows and any hand-added row keep working.\n  if (String(r.active != null ? r.active : 'TRUE').toUpperCase() === 'FALSE') continue;\n  const rowAcct = r.google_ads_id != null ? String(r.google_ads_id).trim() : '';\n  if (rowAcct !== adsIdStr) continue; // only this account's rows\n  const managed = r.managed === true || String(r.managed).toUpperCase() === 'TRUE';\n  configByCampaign[String(r.campaign_id)] = {\n    budget_dollars: Number(r.budget_dollars) || 0,\n    managed\n  };\n  if (managed) accountHasManagedIntent = true;\n}\n\n// === SHARED BUDGET DETECTION ===\n// Build a map of budgetResource -> [campaignIds] to detect shared budgets.\n// When multiple campaigns share a budget resource, amountMicros is the FULL\n// shared amount on each row. Without dedup, we double/triple-count the\n// account-level daily budget, which breaks severity math and utilization.\nconst budgetResourceMap = {};\nrawResults.forEach(row => {\n  const resource = row.campaignBudget?.resourceName;\n  const campaignId = row.campaign?.id;\n  if (resource) {\n    if (!budgetResourceMap[resource]) {\n      budgetResourceMap[resource] = {\n        amountMicros: Number(row.campaignBudget?.amountMicros || 0),\n        campaignIds: []\n      };\n    }\n    budgetResourceMap[resource].campaignIds.push(campaignId);\n  }\n});\n// Deduplicated account-level daily budget: count each budget resource only once\nconst totalDailyBudget = Object.values(budgetResourceMap).reduce((sum, entry) =>\n  sum + entry.amountMicros / 1_000_000, 0);\nconst accountMonthlyBudget = hubspotMonthlyBudget > 0\n  ? hubspotMonthlyBudget\n  : totalDailyBudget * daysInMonth;\nconst accountExpectedSpend = accountMonthlyBudget * expectedPaceRatio;\nconst accountVariancePercent = accountExpectedSpend > 0\n  ? Math.round(((totalActualSpend - accountExpectedSpend) / accountExpectedSpend) * 100)\n  : 0;\n// === CAMPAIGN-LEVEL BUDGET ALLOCATION ===\nconst remainingBudget = accountMonthlyBudget - totalActualSpend;\nconst proposedDailyBudget = Math.max(0, Math.round(remainingBudget / daysRemaining));\n\n// ============================================================================\n// === PHASE 4 — ELIGIBILITY EVALUATION (per account, runs before targets) ===\n// Mirrors the checks already written in `Compute Status`, applied inline so\n// effective_mode is known BEFORE per-campaign targets are computed (Option A).\n// ============================================================================\nlet campaignSteeringEligible = false;\nlet campaignSteeringReason = 'good';       // good | not_managed | incomplete | shared_budget | drift | sum_overshoot\nconst enabledCampaignIds = rawResults\n  .map(row => row.campaign?.id)\n  .filter(id => id != null)\n  .map(String);\nconst configuredCampaignIds = Object.keys(configByCampaign);\n\n// PHASE 5: per-campaign drift attribution map (only meaningful for managed accounts)\nlet perCampaignReason = {};\n\nif (!accountHasManagedIntent) {\n  campaignSteeringReason = 'not_managed';\n} else {\n  // 1) Coverage: every ENABLED campaign in the feed must have a config row.\n  //    (Feed is filtered WHERE campaign.status='ENABLED', so it IS the enabled set.)\n  const uncovered = enabledCampaignIds.filter(id => !configByCampaign[id]);\n  // 2) Shared budget: any enabled campaign on a shared Google Ads budget → can't steer.\n  const hasSharedBudget = rawResults.some(row => {\n    const resource = row.campaignBudget?.resourceName;\n    return resource && budgetResourceMap[resource].campaignIds.length > 1;\n  });\n  // 3) Drift: a configured campaign no longer exists in the enabled set.\n  const enabledSet = new Set(enabledCampaignIds);\n  const drift = configuredCampaignIds.some(id => !enabledSet.has(id));\n  // 4) Sum overshoot: operator monthly targets sum above the account budget.\n  const configuredMonthlyTotal = configuredCampaignIds\n    .reduce((s, id) => s + (configByCampaign[id].budget_dollars || 0), 0);\n  const sumOvershoot = accountMonthlyBudget > 0\n    && configuredMonthlyTotal > accountMonthlyBudget;\n\n  // ===== PHASE 5 — PER-CAMPAIGN DRIFT ATTRIBUTION =====\n  // Reason for EACH configured campaign, so the portal can point at the offender\n  // instead of stamping the same account-level reason on every row.\n  const sharedIdsP5 = new Set(\n    rawResults\n      .filter(row => {\n        const res = row.campaignBudget?.resourceName;\n        return res && budgetResourceMap[res].campaignIds.length > 1;\n      })\n      .map(row => row.campaign?.id != null ? String(row.campaign.id) : '')\n      .filter(Boolean)\n  );\n  for (const cid of configuredCampaignIds) {\n    if (!enabledSet.has(cid))       perCampaignReason[cid] = 'drift';         // configured, not live\n    else if (sharedIdsP5.has(cid))  perCampaignReason[cid] = 'shared_budget'; // on a shared budget\n    else                            perCampaignReason[cid] = 'ok';            // this one is fine\n  }\n\n  if (uncovered.length > 0)      campaignSteeringReason = 'incomplete';\n  else if (hasSharedBudget)      campaignSteeringReason = 'shared_budget';\n  else if (drift)                campaignSteeringReason = 'drift';\n  else if (sumOvershoot)         campaignSteeringReason = 'sum_overshoot';\n  else {\n    campaignSteeringEligible = true;\n    campaignSteeringReason = 'good';\n  }\n}\n\n// === DAY-OF-WEEK ADJUSTMENT (account-level; applied per campaign at the\n//     FINAL step in Merged Data — proposedDailyBudget stays the BASE) ===\nconst normalDailyAverage = daysInMonth > 0 ? accountMonthlyBudget / daysInMonth : 0;\nconst rawDowAdjustment = DOW_MULTIPLIERS[today.getDay()] || 0;\nconst dowFlags = [];\nlet dowAdjustment = rawDowAdjustment;\n// Bill's end-of-month catch-up rule + symmetric overspend guard:\n// if the required daily pace is far from the normal daily average\n// (>130% behind or <70% ahead), halve the multiplier deviation today.\nconst catchUpActive = normalDailyAverage > 0 && (\n  proposedDailyBudget > 1.3 * normalDailyAverage ||\n  proposedDailyBudget < 0.7 * normalDailyAverage\n);\nif (catchUpActive) {\n  dowAdjustment = dowAdjustment * 0.5;\n  dowFlags.push('CATCH_UP_HALVED');\n}\n// Month-end guard: with <=2 days left there is no tomorrow for the\n// remaining-budget feedback loop to self-correct — suppress DOW entirely.\nif (daysRemaining <= 2) {\n  dowAdjustment = 0;\n  dowFlags.push('MONTH_END_SUPPRESSED');\n}\nconst dowMultiplier = Math.round((1 + dowAdjustment) * 100) / 100;\n// === ESTIMATED YESTERDAY MULTIPLIER (base de-normalization) ===\n// The live budget read from the API this morning embodies YESTERDAY's\n// multiplier. All comparisons must run base-to-base, so divide it out.\nconst yesterday = new Date(today);\nyesterday.setDate(yesterday.getDate() - 1);\nconst yesterdayISO = yesterday.toISOString().split('T')[0];\nlet estimatedYesterdayMultiplier = 1;\nif (yesterdayISO >= DOW_ENABLED_SINCE) {\n  estimatedYesterdayMultiplier = 1 + (DOW_MULTIPLIERS[yesterday.getDay()] || 0);\n}\n// Yesterday was month-end suppressed (its daysRemaining was <= 2), or was\n// the day-1 grace period (no mutate ran) — live budget carries no multiplier.\nif (daysRemaining <= 1 || dayOfMonth <= 2) {\n  estimatedYesterdayMultiplier = 1;\n}\nconst campaigns = rawResults.map(row => {\n  const rawDailyBudget = Number(row.campaignBudget?.amountMicros || 0) / 1_000_000;\n  const budgetResource = row.campaignBudget?.resourceName;\n  const siblingCount = budgetResource\n    ? budgetResourceMap[budgetResource].campaignIds.length\n    : 1;\n  const isSharedBudget = siblingCount > 1;\n  // effectiveDailyBudget = this campaign's proportional share of the budget resource\n  const effectiveDailyBudget = Math.round(rawDailyBudget / siblingCount);\n  // De-normalized base view of the live budget (strip yesterday's multiplier)\n  const baseCurrentDailyBudget = estimatedYesterdayMultiplier !== 0\n    ? Math.round(effectiveDailyBudget / estimatedYesterdayMultiplier)\n    : effectiveDailyBudget;\n  const actualSpend = Number(row.metrics?.costMicros || 0) / 1_000_000;\n  // Use total account spend for pacing, but distribute the remaining\n  // allowance only across campaigns that are currently enabled.\n  const spendFraction = enabledCampaignSpend > 0\n    ? actualSpend / enabledCampaignSpend\n    : 1 / Math.max(rawResults.length, 1);\n\n  const spendShare = Math.round(spendFraction * 100);\n\n  const campaignId = row.campaign?.id != null ? String(row.campaign?.id) : null;\n\n  // ===== PHASE 4 — PER-CAMPAIGN TARGET SELECTION =====\n  // Managed + eligible → pace this campaign toward ITS OWN monthly target\n  // using the same remaining/days-remaining formula the account uses.\n  // Otherwise → the existing account-spend-share split (unchanged behavior).\n  const cfg = campaignId ? configByCampaign[campaignId] : null;\n  let campaignProposedBudget;\n  let campaignSteered = false;\n  if (campaignSteeringEligible && cfg && cfg.managed) {\n    const campaignMonthlyTarget = cfg.budget_dollars || 0;\n    const campaignRemaining = campaignMonthlyTarget - actualSpend;\n    campaignProposedBudget = Math.max(0, Math.round(campaignRemaining / daysRemaining));\n    campaignSteered = true;\n  } else {\n      campaignProposedBudget = Math.round(proposedDailyBudget * spendFraction);\n    }\n\n  return {\n    campaignId: row.campaign?.id,\n    campaignStatus: row.campaign?.status || null,\n    campaignBudgetResource: budgetResource,\n    name: row.campaign?.name || 'Unknown campaign',\n    actualSpend: Math.round(actualSpend),\n    currentDailyBudget: effectiveDailyBudget,\n    baseCurrentDailyBudget,\n    rawBudgetResourceAmount: Math.round(rawDailyBudget),\n    proposedDailyBudget: campaignProposedBudget,\n    searchBudgetLostIS: Number(row.metrics?.searchBudgetLostImpressionShare || 0),\n    spendShare,\n    isSharedBudget,\n    sharedBudgetSiblings: siblingCount,\n    // Phase 4 audit fields\n    campaignSteered,\n    campaignMonthlyTarget: (cfg && cfg.managed) ? (cfg.budget_dollars || 0) : null\n  };\n});\n// === TASK 1 (2026-07-23): DROP DEAD/TEST CAMPAIGNS (zero MTD spend) ===\n// Enabled campaigns that have spent $0 month-to-date are treated as inactive/test\n// campaigns and excluded from pacing routing, logging, and the portal. Gated to\n// dayOfMonth > 1 so the 1st of a new month (all spend naturally $0) does not wipe\n// every campaign — that is the existing day-1 grace period.\nconst activeCampaigns = dayOfMonth > 1\n  ? campaigns.filter(c => c.actualSpend > 0)\n  : campaigns;\n\n// === PROJECTION-BASED SEVERITY MODEL ===\nconst dailyRunRate = dayOfMonth > 0 ? totalActualSpend / dayOfMonth : 0;\nconst projectedTotal = totalActualSpend + (dailyRunRate * daysRemaining);\nconst projectedOvershoot = projectedTotal - accountMonthlyBudget;\nconst dailyCorrectionNeeded = daysRemaining > 0\n  ? projectedOvershoot / daysRemaining\n  : projectedOvershoot;\nconst currentAccountDailyBudget = totalDailyBudget > 0 ? totalDailyBudget : 1;\nconst correctionPercent = Math.abs(dailyCorrectionNeeded) / currentAccountDailyBudget;\nconst direction = projectedOvershoot > 0 ? 'over' : 'under';\nlet severity;\nif (correctionPercent < 0.05) {\n  severity = 'OK';\n} else if (direction === 'over' && correctionPercent >= 0.30) {\n  severity = 'CRITICAL';\n} else if (direction === 'over' && correctionPercent >= 0.15) {\n  severity = 'ALERT';\n} else if (direction === 'over') {\n  severity = 'AUTO';\n} else if (direction === 'under' && correctionPercent >= 0.15) {\n  severity = 'UNDERPACE';\n} else {\n  severity = 'AUTO';\n}\n// === CLIENT-FACING DISPLAY STATUS (5 symmetric tiers) ===\n// Basis: how far the account is over/under its pace vs the daily target\n// (= month-to-date variance %, the figure shown on the account). Decoupled\n// from routing `severity` — display only, drives NO money decision.\n// Bands (\">\" = higher tier): |var| <= 10% On Track; 10-20% Under/Overpacing\n// (20% stays mild); > 20% Significantly. + = over target, - = under.\nconst displayVariance = accountVariancePercent;      // signed integer %, + over / - under\nconst displayVarianceMag = Math.abs(displayVariance);\nlet displayStatus;\nif (displayVarianceMag <= 10) {\n  displayStatus = 'On Track';\n} else if (displayVariance > 0) {\n  displayStatus = displayVarianceMag > 20 ? 'Significantly Overpacing' : 'Overpacing';\n} else {\n  displayStatus = displayVarianceMag > 20 ? 'Significantly Underpacing' : 'Underpacing';\n}\n// Damping caps by severity\nconst dampingCaps = {\n  CRITICAL: 0.30,\n  ALERT: 0.20,\n  AUTO: 0.10,\n  UNDERPACE: 0.20,\n  OK: 0.05\n};\nconst maxChangePercent = dampingCaps[severity] || 0.10;\nfunction dampAdjustment(currentBudget, rawProposed, cap) {\n  if (currentBudget === 0) return rawProposed;\n  const ceiling = currentBudget * (1 + cap);\n  const floor = currentBudget * (1 - cap);\n  return Math.round(Math.min(ceiling, Math.max(floor, rawProposed)));\n}\n// DAMPING NOW CLAMPS AGAINST THE DE-NORMALIZED BASE-CURRENT, not the\n// live (multiplied) budget — otherwise yesterday's multiplier corrupts\n// today's base and the DOW swing gets eaten by the damping cap.\nconst dampedCampaigns = activeCampaigns.map(c => {\n  const dampedBudget = dampAdjustment(c.baseCurrentDailyBudget, c.proposedDailyBudget, maxChangePercent);\n  return {\n    ...c,\n    rawProposedDailyBudget: c.proposedDailyBudget,\n    proposedDailyBudget: dampedBudget,\n    dampedFrom: c.proposedDailyBudget !== dampedBudget ? c.proposedDailyBudget : null\n  };\n});\nreturn {\n  json: {\n    practiceName,\n    adsId,\n    severity,\n    displayStatus,   // client-facing 5-tier pacing label (display only, not routing)\n    date: todayISO,\n    // Phase 4: account-level steering mode (drives XOR + portal status)\n    campaignSteering: {\n      eligible: campaignSteeringEligible,\n      effectiveMode: campaignSteeringEligible ? 'campaign' : 'account',\n      statusReason: campaignSteeringReason,\n      managedIntent: accountHasManagedIntent,\n      configuredCount: configuredCampaignIds.length,\n      enabledCount: enabledCampaignIds.length,\n      perCampaignReason   // PHASE 5: { campaign_id: 'drift'|'shared_budget'|'ok' }\n    },\n    pacing: {\n      monthlyBudget: Math.round(accountMonthlyBudget),\n      totalActualSpend: Math.round(totalActualSpend),\n      expectedSpend: Math.round(accountExpectedSpend),\n      variancePercent: accountVariancePercent,\n      remainingBudget: Math.round(remainingBudget),\n      currentDailyBudget: Math.round(totalDailyBudget),\n      proposedDailyBudget,\n      flagged: severity !== 'OK',\n      spendSource,\n      enabledCampaignSpend: Math.round(enabledCampaignSpend)\n    },\n    projection: {\n      dailyRunRate: Math.round(dailyRunRate),\n      projectedTotal: Math.round(projectedTotal),\n      projectedOvershoot: Math.round(projectedOvershoot),\n      dailyCorrectionNeeded: Math.round(dailyCorrectionNeeded),\n      correctionPercent: Math.round(correctionPercent * 100),\n      direction,\n      maxChangePercent: Math.round(maxChangePercent * 100)\n    },\n    dateContext: {\n      dayOfMonth,\n      daysInMonth,\n      daysRemaining,\n      expectedPacePercent: Math.round(expectedPaceRatio * 100)\n    },\n    dow: {\n      multiplier: dowMultiplier,\n      rawAdjustment: rawDowAdjustment,\n      catchUpActive,\n      flags: dowFlags,\n      estimatedYesterdayMultiplier,\n      normalDailyAverage: Math.round(normalDailyAverage)\n    },\n    campaigns: dampedCampaigns\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        368
+      ],
+      "id": "53cd7118-782a-400a-b3fa-0c4dd28a9725",
+      "name": "Data for Pacing Agent"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "adsId",
+              "field2": "customer_id"
+            }
+          ]
+        },
+        "joinMode": "enrichInput1",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2000,
+        464
+      ],
+      "id": "67816d9c-ef5c-4edc-b6ce-fe041b755c29",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1000001-0000-0000-0000-000000000001",
+              "name": "adsId",
+              "type": "number",
+              "value": "={{ $json.adsId }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000002",
+              "name": "practiceName",
+              "type": "string",
+              "value": "={{ $json.practiceName }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000003",
+              "name": "severity",
+              "type": "string",
+              "value": "={{ $json.severity }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000004",
+              "name": "date",
+              "type": "string",
+              "value": "={{ $json.date }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000005",
+              "name": "pacing",
+              "type": "object",
+              "value": "={{ $json.pacing }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000006",
+              "name": "dateContext",
+              "type": "object",
+              "value": "={{ $json.dateContext }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000007",
+              "name": "campaigns",
+              "type": "array",
+              "value": "={{ $json.campaigns }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000008",
+              "name": "projection",
+              "type": "object",
+              "value": "={{ $json.projection }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000009",
+              "name": "dow",
+              "type": "object",
+              "value": "={{ $json.dow }}"
+            },
+            {
+              "id": "a1000001-0000-0000-0000-000000000010",
+              "name": "campaignSteering",
+              "type": "object",
+              "value": "={{ $json.campaignSteering }}"
+            },
+            {
+              "id": "3f5a1133-679d-4bf4-9b86-b175f0d39c93",
+              "name": "displayStatus",
+              "value": "={{ $json.displayStatus }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "ignoreConversionErrors": true
+        }
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1776,
+        368
+      ],
+      "id": "d6e34eb7-beb2-4c58-a244-d4b816c59ede",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.actions.autoApply.length > 0 }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "12af7593-716d-43c6-b7cf-5cddcccddee9"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "autoApply"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "56dfc358-5bb0-4bea-86c5-a10f1c3b8dde",
+                    "leftValue": "={{ $json.actions.needsApproval.length > 0 }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "needsApproval"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "dc19abd6-578f-45a5-849a-06434388051d",
+                    "leftValue": "={{ $json.actions.pauseList.length > 0 }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pauseList"
+            }
+          ]
+        },
+        "options": {
+          "allMatchingOutputs": true
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        2448,
+        176
+      ],
+      "id": "3d842861-01b8-4689-8aed-9bba5c9b8f49",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const account = $input.item.json;\n\n// Yesterday data — campaign-level if available, account-level as fallback\nconst yesterdayAccountBudget = Number(account.yesterdays_account_proposed_daily_budget) || 0;\nconst yesterdayCampaigns = account.yesterdays_campaigns || {};\n\n// 7-day spend data from API\nconst sevenDayCampaigns = account.sevenDayCampaigns || [];\n\n// === BUILD 7-DAY UTILIZATION MAP ===\n// Structure: { campaignId: [{ date, spend, budget, utilization }, ...] }\nconst utilizationMap = {};\n\nfor (const row of sevenDayCampaigns) {\n  const cId = String(row.campaign_id);\n  if (!utilizationMap[cId]) {\n    utilizationMap[cId] = [];\n  }\n  const spend = Number(row.cost_micros || 0) / 1_000_000;\n  const budget = Number(row.budget_micros || 0) / 1_000_000;\n  const utilization = budget > 0 ? spend / budget : 0;\n  utilizationMap[cId].push({\n    date: row.date,\n    spend,\n    budget,\n    utilization\n  });\n}\n\n// Determine chronic demand-limited status per campaign\n// Rule: < 70% utilization for ALL of the last 7 days\nfunction isChronicDemandLimited(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length < 7) return false; // not enough data to judge\n  return days.every(d => d.utilization < 0.70);\n}\n\n// Get yesterday's utilization from the 7-day data\nfunction getYesterdayUtilization(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length === 0) return null;\n  // Sort by date descending, take the most recent\n  const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date));\n  return sorted[0]; // most recent day in the 7-day window\n}\n// Get 7-day utilization\nfunction getSevenDayAvgUtilization(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length === 0) return null;\n  const totalUtil = days.reduce((sum, d) => sum + d.utilization, 0);\n  return Math.round((totalUtil / days.length) * 100);\n}\n\n// === DAY-1-OF-MONTH GRACE PERIOD ===\n// On the 1st, $0 spend makes every account look UNDERPACE/CRITICAL.\n// Skip all classification and recommendation logic — just log and move on.\nif (account.dateContext.dayOfMonth <= 1) {\n  const graceCampaigns = (account.campaigns || []).map(c => {\n    const cId = String(c.campaignId);\n    return {\n      ...c,\n      isBudgetLimited: false,\n      isChronicDemandLimited: false,\n      classification: null,\n      budgetLostIS: 0,\n      yesterdayUtilization: null,\n      sevenDayAvgUtilization: getSevenDayAvgUtilization(cId),\n      utilizationDays: (utilizationMap[cId] || []).length,\n      practiceName: account.practiceName,\n      adsId: account.adsId,\n      yesterdayAccountBudget,\n      yesterdayCampaignBudget: 0,\n      campaignProposedMultiple: null,\n      accountProposedMultiple: null,\n      variancePercent: account.pacing.variancePercent,\n      correctionPercent: account.projection.correctionPercent,\n      conflictsWithPacing: false,\n      recommendationType: 'NO_CHANGE',\n      skipReason: 'MONTH_START_GRACE',\n      dowMultiplier: 1,\n      dowFlags: 'MONTH_START_GRACE',\n      finalDailyBudget: c.proposedDailyBudget\n    };\n  });\n\n  return {\n    json: {\n      practiceName: account.practiceName,\n      adsId: account.adsId,\n      severity: 'OK',\n      displayStatus: 'On Track',   // grace period: force On Track (spend is $0 on the 1st)\n      date: account.date,\n      pacing: account.pacing,\n      projection: account.projection,\n      dateContext: account.dateContext,\n      dow: account.dow,\n      accountOnTrack: true,\n      allDemandLimited: false,\n      anyBudgetLimited: false,\n      skipReason: 'MONTH_START_GRACE',\n      campaignSteering: account.campaignSteering || {\n        eligible: false, effectiveMode: 'account', statusReason: 'not_managed'\n      },\n      actions: {\n        autoApply: [],\n        needsApproval: [],\n        pauseList: [],\n        log: graceCampaigns\n      },\n      summary: { autoApplyCount: 0, approvalCount: 0, pauseCount: 0 }\n    }\n  };\n}\n\n// === ACCOUNT-LEVEL PACING OVERRIDE (Bill's Rule 4) ===\n// If 95-105% pace MTD, don't touch any budgets\nconst accountPacePercent = account.pacing.expectedSpend > 0\n  ? (account.pacing.totalActualSpend / account.pacing.expectedSpend) * 100\n  : 100;\nconst accountOnTrack = accountPacePercent >= 95 && accountPacePercent <= 105;\n\n// === CLASSIFY EACH CAMPAIGN ===\nconst classifiedCampaigns = account.campaigns.map(c => {\n  const cId = String(c.campaignId);\n\n  // Budget-limited signals (Bill's Rule 1)\n  const budgetLostIS = c.searchBudgetLostIS || 0;\n  const yesterdayUtil = getYesterdayUtilization(cId);\n  const yesterdayUtilPercent = yesterdayUtil ? yesterdayUtil.utilization : 0;\n\n  const sevenDayUtil = getSevenDayAvgUtilization(cId);\n  const isBudgetLimited = budgetLostIS > 0.05 \n    || yesterdayUtilPercent >= 0.95\n    || (sevenDayUtil !== null && sevenDayUtil >= 95);\n  const chronicDemandLimited = isChronicDemandLimited(cId);\n\n  return {\n    ...c,\n    isBudgetLimited,\n    isChronicDemandLimited: chronicDemandLimited,\n    classification: isBudgetLimited ? 'BUDGET_LIMITED' : 'DEMAND_LIMITED',\n    budgetLostIS: Math.round(budgetLostIS * 100) / 100,\n    yesterdayUtilization: yesterdayUtil\n      ? Math.round(yesterdayUtil.utilization * 100)\n      : null,\n    sevenDayAvgUtilization: getSevenDayAvgUtilization(cId),\n    utilizationDays: (utilizationMap[cId] || []).length\n  };\n});\n\nconst anyBudgetLimited = classifiedCampaigns.some(c => c.isBudgetLimited);\nconst allDemandLimited = classifiedCampaigns.every(c => !c.isBudgetLimited);\n\n// === PHASE 4 — CAMPAIGN STEERING XOR (full bypass) ===\n// When an account is managed + eligible, campaign-level steering is the ONLY\n// mutation path. The account-level severity gates (Rule 4 on-track freeze,\n// Rule 2 demand-side INVESTIGATE) and account-direction routing are bypassed;\n// each campaign routes purely on its own target-vs-current delta. Account\n// correctionPercent/severity remain computed for display only.\n\n// === TASK 2 (2026-07-23): ACCOUNT BUDGET-CAP PAUSE ===\n// MTD spend has reached/exceeded the monthly budget → hard-stop the whole account:\n// every enabled campaign routes to PAUSE_CAMPAIGN, regardless of severity or\n// campaign-steering. (Day-1 grace handled above.)\nconst capReached =\n  Number(account.pacing.monthlyBudget) > 0 &&\n  Number(account.pacing.totalActualSpend) >= Number(account.pacing.monthlyBudget);\nconst campaignSteeringEligible = !!(account.campaignSteering && account.campaignSteering.eligible);\n\n// === DETERMINE EFFECTIVE SEVERITY ===\nlet effectiveSeverity = account.severity;\nlet skipReason = null;\n\nif (!campaignSteeringEligible) {\n  if (accountOnTrack) {\n    // Rule 4: Account on track — no changes\n    effectiveSeverity = 'OK';\n    skipReason = 'ACCOUNT_ON_TRACK';\n  } else if (account.projection.direction === 'under' && allDemandLimited) {\n    // Rule 2: Underpacing but no campaign is budget-limited\n    effectiveSeverity = 'INVESTIGATE';\n    skipReason = 'DEMAND_SIDE_ISSUE';\n  }\n}\n\n// === BUILD ACTIONS ===\nconst actions = {\n  autoApply: [],\n  needsApproval: [],\n  pauseList: [],\n  log: []\n};\n\n// Account-level multiple — kept for logging only\nconst todayProposed = account.pacing.proposedDailyBudget;\nconst accountProposedMultiple = yesterdayAccountBudget > 0\n  ? todayProposed / yesterdayAccountBudget\n  : null;\n\nclassifiedCampaigns.forEach(c => {\n  const cId = String(c.campaignId);\n  const yesterdayCampaign = yesterdayCampaigns[cId] || null;\n  const yesterdayCampaignBudget = yesterdayCampaign\n    ? yesterdayCampaign.proposedDailyBudget\n    : 0;\n\n  // All change/direction comparisons run against the DE-NORMALIZED base\n  // view of the live budget. The raw live budget embodies yesterday's\n  // DOW multiplier; comparing the base proposal against it would make\n  // intended DOW swings look like pacing changes.\n  const compareBudget = (c.baseCurrentDailyBudget != null)\n    ? c.baseCurrentDailyBudget\n    : c.currentDailyBudget;\n\n  // Per-campaign escalation check (yesterday's logged budget is already a base)\n  const campaignProposedMultiple = yesterdayCampaignBudget > 0\n    ? c.proposedDailyBudget / yesterdayCampaignBudget\n    : null;\n  const campaignExceedsEscalation = campaignProposedMultiple !== null\n    && (campaignProposedMultiple >= 2 || campaignProposedMultiple <= 0.5);\n\n  // Meaningful change check\n  const dollarChange = Math.abs(c.proposedDailyBudget - compareBudget);\n  const percentChange = compareBudget > 0\n    ? Math.abs((c.proposedDailyBudget / compareBudget) - 1)\n    : (c.proposedDailyBudget > 0 ? 1 : 0);\n  const meaningfulChange = percentChange >= 0.10 || dollarChange >= 3;\n\n  // Direction consistency check\n  // PHASE 4: for steered campaigns this account-direction conflict concept\n  // does not apply — each campaign moves toward its own target. Force false.\n  const accountDirection = account.projection.direction;\n  const campaignDirection = c.proposedDailyBudget > compareBudget ? 'increase' : 'decrease';\n  const conflictsWithPacing = !campaignSteeringEligible && meaningfulChange && (\n    (accountDirection === 'over' && campaignDirection === 'increase') ||\n    (accountDirection === 'under' && campaignDirection === 'decrease')\n  );\n\n  let recommendationType;\n  let campaignSkipReason = skipReason; // inherit account-level skip if set\n\n  if (capReached) {\n    // Account cap hit — hard stop this campaign.\n    recommendationType = 'PAUSE_CAMPAIGN';\n    campaignSkipReason = 'BUDGET_CAP_REACHED';\n  } else if (campaignSteeringEligible) {\n    // === PHASE 4 — CAMPAIGN-STEERED ROUTING ===\n    // Route on this campaign's own target-vs-current delta. Meaningful moves\n    // go to AUTO increase/decrease; the 2x escalation safety net still forces\n    // approval. Damping (upstream) already caps the per-day step size, and the\n    // auto-decrease promotion + shared-budget grouping below still apply.\n    if (!meaningfulChange) {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n    } else if (campaignExceedsEscalation) {\n      recommendationType = campaignDirection === 'increase'\n        ? 'BUDGET_INCREASE_APPROVAL'\n        : 'BUDGET_DECREASE_APPROVAL';\n    } else {\n      recommendationType = campaignDirection === 'increase'\n        ? 'BUDGET_INCREASE'\n        : 'BUDGET_DECREASE';\n    }\n\n  } else if (skipReason === 'ACCOUNT_ON_TRACK') {\n    // Rule 4: Account on track — no PACING changes for anyone.\n    // (Day-of-week shaping is applied later, in the DOW final transform.)\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'ACCOUNT_ON_TRACK';\n\n  } else if (skipReason === 'DEMAND_SIDE_ISSUE') {\n    // Rule 2: All demand-limited — no budget changes\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'DEMAND_SIDE_ISSUE';\n\n  } else if (account.projection.direction === 'under' && !c.isBudgetLimited && !c.isChronicDemandLimited) {\n    // Rule 3 (partial): Underpacing, this campaign is demand-limited but NOT chronic — leave alone\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'DEMAND_LIMITED_NO_CHANGE';\n\n  } else if (account.projection.direction === 'under' && !c.isBudgetLimited && c.isChronicDemandLimited) {\n    // Rule 3 (partial): Chronic demand-limited sibling — eligible donor\n    // Only donate if there ARE budget-limited siblings that need it\n    if (anyBudgetLimited && meaningfulChange) {\n      recommendationType = 'BUDGET_DECREASE_APPROVAL';\n      campaignSkipReason = 'CHRONIC_DEMAND_LIMITED_DONOR';\n    } else {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING';\n    }\n\n  } else if (account.projection.direction === 'under' && c.isBudgetLimited) {\n    // Rule 3 (core): Budget-limited campaign on an underpacing account — INCREASE\n    if (meaningfulChange) {\n      recommendationType = 'BUDGET_INCREASE';\n      campaignSkipReason = null;\n    } else {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'BUDGET_LIMITED_BUT_CHANGE_TOO_SMALL';\n    }\n\n  } else if (effectiveSeverity === 'CRITICAL' && meaningfulChange) {\n    // Overpacing: CRITICAL — aggressive action\n    recommendationType = c.proposedDailyBudget === 0\n      ? 'PAUSE_CAMPAIGN'\n      : (c.proposedDailyBudget > compareBudget\n          ? 'BUDGET_INCREASE_APPROVAL'\n          : 'BUDGET_DECREASE_APPROVAL');\n\n  } else if (conflictsWithPacing) {\n    // Direction conflict — force to approval\n    recommendationType = campaignDirection === 'increase'\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if (campaignExceedsEscalation) {\n    // 2x escalation safety net\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if (effectiveSeverity === 'ALERT' && meaningfulChange) {\n    // ALERT: meaningful changes need approval\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if ((effectiveSeverity === 'AUTO' || effectiveSeverity === 'UNDERPACE') && meaningfulChange) {\n    // AUTO/UNDERPACE with budget-limited campaigns already handled above\n    // This catches overpacing AUTO scenarios\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE'\n      : 'BUDGET_DECREASE';\n\n  } else {\n    recommendationType = 'NO_CHANGE';\n  }\n\n  // Bill's Rule 3: Never cut a budget-limited campaign on an underpacing account.\n  // PHASE 4: this is an account-direction rule; it does not apply under campaign\n  // steering, where a campaign over its OWN target should be cut regardless.\n  if (!campaignSteeringEligible\n      && c.isBudgetLimited\n      && account.projection.direction === 'under'\n      && recommendationType !== 'NO_CHANGE'\n      && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'BUDGET_LIMITED_NO_DECREASE';\n  }\n\n  // Catch-all: ensure every NO_CHANGE has a skip reason\n  if (recommendationType === 'NO_CHANGE' && !campaignSkipReason) {\n    campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n  }\n\n  // Reconcile label with actual dollar direction (base vs base)\n  if (recommendationType === 'BUDGET_INCREASE' && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'BUDGET_DECREASE';\n  } else if (recommendationType === 'BUDGET_DECREASE' && c.proposedDailyBudget > compareBudget) {\n    recommendationType = 'BUDGET_INCREASE';\n  } else if (recommendationType === 'BUDGET_INCREASE_APPROVAL' && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'BUDGET_DECREASE_APPROVAL';\n  } else if (recommendationType === 'BUDGET_DECREASE_APPROVAL' && c.proposedDailyBudget > compareBudget) {\n    recommendationType = 'BUDGET_INCREASE_APPROVAL';\n  }\n\n  // If proposed equals base-current, it's NO_CHANGE regardless\n  if (c.proposedDailyBudget === compareBudget) {\n    recommendationType = 'NO_CHANGE';\n    if (!campaignSkipReason) campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n  }\n\n  // === BILL'S AUTO-DECREASE RULE (June 2026) ===\n  // Decreases with an applied cut of ≤30% auto-apply instead of routing to approval.\n  // Upstream damping already caps single-day cuts (CRITICAL ±30%, ALERT ±20%),\n  // so this promotes most CRITICAL/ALERT decrease approvals to auto-apply.\n  // Safety flags still force approval: direction conflicts, 2x escalation,\n  // and chronic demand-limited donor cuts (Rule 3 reallocations).\n  // DOW NOTE: measured against the DE-NORMALIZED base (compareBudget), not the\n  // live budget — otherwise yesterday's multiplier distorts the ≤30% test.\n  const appliedDecreasePercent = (compareBudget > 0 && c.proposedDailyBudget < compareBudget)\n    ? (compareBudget - c.proposedDailyBudget) / compareBudget\n    : 0;\n\n  let autoDecreasePromoted = false;\n\n  // Promote when the cut is no deeper than the rounded 30% damping floor.\n  // Comparing dollars (not percent) avoids rounding artifacts on small budgets —\n  // e.g., $42 × 0.70 = $29.40 rounds to $29, a 30.95% cut that a strict\n  // percent check would wrongly reject.\n  const thirtyPercentFloor = Math.round(compareBudget * 0.70);\n\n  if (recommendationType === 'BUDGET_DECREASE_APPROVAL'\n      && appliedDecreasePercent > 0\n      && c.proposedDailyBudget >= thirtyPercentFloor\n      && !conflictsWithPacing\n      && !campaignExceedsEscalation\n      && campaignSkipReason !== 'CHRONIC_DEMAND_LIMITED_DONOR') {\n    recommendationType = 'BUDGET_DECREASE';\n    autoDecreasePromoted = true;\n  }\n\n  const campaignAction = {\n    ...c,\n    practiceName: account.practiceName,\n    adsId: account.adsId,\n    yesterdayAccountBudget,\n    yesterdayCampaignBudget,\n    campaignProposedMultiple: campaignProposedMultiple !== null\n      ? Math.round(campaignProposedMultiple * 100) / 100\n      : null,\n    accountProposedMultiple: accountProposedMultiple !== null\n      ? Math.round(accountProposedMultiple * 100) / 100\n      : null,\n    variancePercent: account.pacing.variancePercent,\n    correctionPercent: account.projection.correctionPercent,\n    conflictsWithPacing,\n    appliedDecreasePercent: Math.round(appliedDecreasePercent * 100),\n    autoDecreasePromoted,\n    recommendationType,\n    skipReason: campaignSkipReason,\n    pauseReason: recommendationType === 'PAUSE_CAMPAIGN'\n      ? (campaignSkipReason === 'BUDGET_CAP_REACHED' ? 'BUDGET_CAP_REACHED' : 'MONTH_END_ZERO')\n      : null\n  };\n\n  // Route to action buckets\n  if (recommendationType === 'PAUSE_CAMPAIGN') {\n    actions.pauseList.push(campaignAction);\n  } else if (recommendationType.includes('APPROVAL')) {\n    actions.needsApproval.push(campaignAction);\n  } else if (recommendationType === 'BUDGET_INCREASE' || recommendationType === 'BUDGET_DECREASE') {\n    actions.autoApply.push(campaignAction);\n  }\n\n  actions.log.push(campaignAction);\n});\n\n// === SHARED BUDGET RECOMMENDATION GROUPING ===\n// Siblings sharing a budget resource must get the same recommendation.\n// Run after all individual recommendations are set, before label reconciliation.\n\nconst budgetGroups = {};\nactions.log.forEach((c, idx) => {\n  if (c.isSharedBudget && c.campaignBudgetResource) {\n    if (!budgetGroups[c.campaignBudgetResource]) {\n      budgetGroups[c.campaignBudgetResource] = [];\n    }\n    budgetGroups[c.campaignBudgetResource].push(idx);\n  }\n});\n\nfor (const [resource, indices] of Object.entries(budgetGroups)) {\n  if (indices.length < 2) continue;\n\n  const siblings = indices.map(i => actions.log[i]);\n  const recTypes = siblings.map(s => s.recommendationType);\n  const directions = siblings.map(s => {\n    if (s.recommendationType === 'NO_CHANGE') return 'none';\n    const cmp = (s.baseCurrentDailyBudget != null) ? s.baseCurrentDailyBudget : s.currentDailyBudget;\n    return s.proposedDailyBudget > cmp ? 'increase' : 'decrease';\n  });\n\n  const uniqueDirections = [...new Set(directions.filter(d => d !== 'none'))];\n  const anyApproval = recTypes.some(r => r.includes('APPROVAL'));\n  const anyPause = recTypes.some(r => r === 'PAUSE_CAMPAIGN');\n\n  let groupRec;\n  let groupNote;\n\n  if (anyPause) {\n    // If any sibling wants to pause, escalate the whole group to approval\n    groupRec = 'BUDGET_DECREASE_APPROVAL';\n    groupNote = 'Shared budget — sibling campaign flagged for pause, group routed to approval';\n  } else if (uniqueDirections.length > 1) {\n    // Conflicting directions — default to NO_CHANGE\n    groupRec = 'NO_CHANGE';\n    groupNote = 'Shared budget — sibling campaigns disagree on direction, no change applied';\n  } else if (uniqueDirections.length === 1 && anyApproval) {\n    // Same direction but at least one needs approval — whole group needs approval\n    groupRec = uniqueDirections[0] === 'increase'\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n    groupNote = 'Shared budget — grouped recommendation requires approval';\n  } else if (uniqueDirections.length === 1) {\n    // Same direction, all auto — keep it\n    groupRec = uniqueDirections[0] === 'increase'\n      ? 'BUDGET_INCREASE'\n      : 'BUDGET_DECREASE';\n    groupNote = 'Shared budget — siblings agree on direction';\n  } else {\n    // All NO_CHANGE already\n    groupRec = 'NO_CHANGE';\n    groupNote = 'Shared budget — no changes needed';\n  }\n\n  // Apply unified recommendation to all siblings\n  for (const idx of indices) {\n    const c = actions.log[idx];\n    c.recommendationType = groupRec;\n    c.sharedBudgetNote = groupNote;\n\n    if (groupRec === 'NO_CHANGE' && !c.skipReason) {\n      c.skipReason = 'SHARED_BUDGET_CONFLICT';\n    }\n  }\n}\n\n// === DAY-OF-WEEK FINAL TRANSFORM ===\n// Applied LAST: after all pacing logic, damping, routing, and shared-budget\n// grouping. proposedDailyBudget remains the BASE everywhere upstream and in\n// the sheet; finalDailyBudget is the only value the mutate call may use.\n\nconst accountDow = account.dow || { multiplier: 1, flags: [] };\nconst dowM = accountDow.multiplier || 1;\n\n// Rows that must never be converted to a DOW adjustment\nconst DOW_CONVERT_EXCLUSIONS = ['MONTH_START_GRACE', 'SHARED_BUDGET_CONFLICT'];\n\nactions.log.forEach(c => {\n  const isAction = ['BUDGET_INCREASE','BUDGET_DECREASE',\n                    'BUDGET_INCREASE_APPROVAL','BUDGET_DECREASE_APPROVAL'].includes(c.recommendationType);\n  const base = isAction\n    ? c.proposedDailyBudget\n    : ((c.baseCurrentDailyBudget != null) ? c.baseCurrentDailyBudget : c.currentDailyBudget);\n\n  // Shape the base, then hard-clamp: never outside 0.55x–1.55x of base\n  let final = Math.round(base * dowM);\n  const ceiling = Math.round(base * 1.55);\n  const floor = Math.round(base * 0.55);\n  final = Math.min(ceiling, Math.max(floor, final));\n\n  // Account-level safety guard:\n  // On an overpacing account, DOW shaping must not turn a pacing reduction\n  // into an increase above the budget currently live in Google Ads.\n  // Campaign-steered accounts are excluded because each campaign follows\n  // its own monthly target.\n  const overpacingAccountGuard =\n    !campaignSteeringEligible &&\n    account.projection?.direction === 'over';\n\n  if (overpacingAccountGuard && final > c.currentDailyBudget) {\n    final = c.currentDailyBudget;\n    c.dowGuardApplied = true;\n  } else {\n    c.dowGuardApplied = false;\n  }\n\n  c.dowMultiplier = dowM;\n  c.dowFlags = (accountDow.flags || []).join('|');\n  c.finalDailyBudget = final;\n\n  // Pause rows carry no budget change\n  if (c.recommendationType === 'PAUSE_CAMPAIGN') {\n    c.finalDailyBudget = base;\n    return;\n  }\n\n  // If the overpacing guard reduced a proposed decrease to the current live\n// budget, there is no actual dollar change left to apply.\nconst isDecreaseRecommendation = [\n  'BUDGET_DECREASE',\n  'BUDGET_DECREASE_APPROVAL'\n].includes(c.recommendationType);\n\nif (\n  overpacingAccountGuard &&\n  isDecreaseRecommendation &&\n  c.finalDailyBudget >= c.currentDailyBudget\n) {\n  c.recommendationType = 'NO_CHANGE';\n  c.skipReason = 'DOW_CLAMPED_OVERPACE_NO_CHANGE';\n  c.dowNote =\n    'DOW increase suppressed because the account is overpacing';\n  return;\n}\n\n  // Convert eligible NO_CHANGE rows to DOW_ADJUSTMENT when the shaped\n  // budget meaningfully differs from the budget that is LIVE right now.\n  // This is what lets the daily shape fire on ACCOUNT_ON_TRACK days\n  // (Bill's call: allocate toward converting days even when pacing is fine).\n  if (c.recommendationType === 'NO_CHANGE'\n      && !DOW_CONVERT_EXCLUSIONS.includes(c.skipReason)) {\n    const liveBudget = c.currentDailyBudget;\n    const dollarDelta = Math.abs(final - liveBudget);\n    const pctDelta = liveBudget > 0 ? dollarDelta / liveBudget : (final > 0 ? 1 : 0);\n    if (dollarDelta >= 3 || pctDelta >= 0.05) {\n      c.recommendationType = 'DOW_ADJUSTMENT';\n      c.dowNote = 'Day-of-week shaping: base $' + base + ' x ' + dowM + ' -> $' + final;\n    }\n  }\n});\n\n// Rebuild action buckets after shared budget grouping + DOW transform\nactions.autoApply = [];\nactions.needsApproval = [];\nactions.pauseList = [];\n\nactions.log.forEach(c => {\n  if (c.recommendationType === 'PAUSE_CAMPAIGN') {\n    actions.pauseList.push(c);\n  } else if (c.recommendationType.includes('APPROVAL')) {\n    actions.needsApproval.push(c);\n  } else if (c.recommendationType === 'BUDGET_INCREASE'\n      || c.recommendationType === 'BUDGET_DECREASE'\n      || c.recommendationType === 'DOW_ADJUSTMENT') {\n    actions.autoApply.push(c);\n  }\n});\n\n// INVESTIGATE: off-pace but nothing actionable (original logic preserved as fallback)\nconst pacingAutoApply = actions.autoApply.filter(c => c.recommendationType !== 'DOW_ADJUSTMENT');\nconst nothingToAct =\n  pacingAutoApply.length === 0 &&\n  actions.needsApproval.length === 0 &&\n  actions.pauseList.length === 0;\n\nconst isOffPace = effectiveSeverity !== 'OK' && effectiveSeverity !== 'INVESTIGATE';\n\nconst finalSeverity = (nothingToAct && isOffPace)\n  ? 'INVESTIGATE'\n  : effectiveSeverity;\n\nreturn {\n  json: {\n    practiceName: account.practiceName,\n    adsId: account.adsId,\n    severity: finalSeverity,\n    displayStatus: account.displayStatus,   // display-only, untouched by routing (INVESTIGATE etc.)\n    date: account.date,\n    dow: account.dow,\n    pacing: account.pacing,\n    projection: account.projection,\n    dateContext: account.dateContext,\n    accountOnTrack,\n    allDemandLimited,\n    anyBudgetLimited,\n    skipReason,\n    // Phase 4: pass steering mode through for the portal + status writer\n    campaignSteering: account.campaignSteering || {\n      eligible: false, effectiveMode: 'account', statusReason: 'not_managed'\n    },\n    actions,\n    summary: {\n      autoApplyCount: actions.autoApply.length,\n      approvalCount: actions.needsApproval.length,\n      pauseCount: actions.pauseList.length\n    }\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2224,
+        464
+      ],
+      "id": "b7607f16-3666-4270-9754-23335b4c851b",
+      "name": "Merged Data"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "actions.log",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        2448,
+        528
+      ],
+      "id": "7c79d2aa-925b-41c5-a6c0-85e6f9e09f0c",
+      "name": "Log Data"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1725937011,
+          "mode": "list",
+          "cachedResultName": "G Ads Pacing",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=1725937011"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "=https://dentalmarketing.app.n8n.cloud/workflow/{{$workflow.id}}/executions/{{ $execution.id }}",
+            "practice_name": "={{ $json.practiceName }}",
+            "google_ads_id": "={{ $json.adsId }}",
+            "HS ID": "={{ $('Edit Fields').item.json.hubspotId }}",
+            "Run Date": "={{  $now.setZone('America/New_York').format('yyyy-MM-dd') }}",
+            "campaign_id": "={{ $json.campaignId }}",
+            "campaign_name": "={{ $json.name }}",
+            "account_monthly_budget": "={{ $('Merged Data').item.json.pacing.monthlyBudget }}",
+            "account_actual_spend_mtd": "={{ $('Merged Data').item.json.pacing.totalActualSpend }}",
+            "campaign_actual_spend_mtd": "={{ $json.actualSpend }}",
+            "account_expected_spend_mtd": "={{ $('Merged Data').item.json.pacing.expectedSpend }}",
+            "account_variance_percent": "={{ $('Merged Data').item.json.pacing.variancePercent }}",
+            "account_current_daily_budget": "={{ $('Merged Data').item.json.pacing.currentDailyBudget }}",
+            "campaign_current_daily_budget": "={{ $json.currentDailyBudget }}",
+            "account_proposed_daily_budget": "={{ $('Merged Data').item.json.pacing.proposedDailyBudget }}",
+            "campaign_proposed_daily_budget": "={{ $json.proposedDailyBudget }}",
+            "spend_share": "={{ $json.spendShare }}",
+            "yesterday_account_proposed": "={{ $json.yesterdayAccountBudget }}",
+            "recommendation_type": "={{ $json.recommendationType }}",
+            "correction_percent": "={{ $json.correctionPercent }}",
+            "damped_from": "={{ $json.dampedFrom }}",
+            "account_proposed_multiple": "={{ $json.accountProposedMultiple }}",
+            "campaign_proposed_multiple": "={{ $json.campaignProposedMultiple }}",
+            "severity": "={{ $('Merged Data').item.json.severity }}",
+            "classification": "={{ $json.classification }}",
+            "search_budget_lost_is": "={{ $json.budgetLostIS }}",
+            "yesterday_utilization": "={{ $json.yesterdayUtilization }}",
+            "utilization_days": "={{ $json.utilizationDays }}",
+            "chronic_demand_limited": "={{ $json.isChronicDemandLimited }}",
+            "skip_reason": "={{ $json.skipReason }}",
+            "account_on_track": "={{ $('Merged Data').item.json.accountOnTrack }}",
+            "all_demand_limited": "={{ $('Merged Data').item.json.allDemandLimited }}",
+            "any_budget_limited": "={{ $('Merged Data').item.json.anyBudgetLimited }}",
+            "seven_day_avg_utilization": "={{ $json.sevenDayAvgUtilization }}",
+            "conflicts_with_pacing": "={{ $json.conflictsWithPacing }}",
+            "is_shared_budget": "={{ $json.isSharedBudget }}",
+            "shared_budget_siblings": "={{ $json.sharedBudgetSiblings }}",
+            "shared_budget_note": "={{ $json.sharedBudgetNote }}",
+            "raw_budget_resource_amount": "={{ $json.rawBudgetResourceAmount }}",
+            "dow_multiplier": "={{ $json.dowMultiplier }}",
+            "final_daily_budget": "={{ $json.finalDailyBudget }}",
+            "dow_flags": "={{ $json.dowFlags }}",
+            "auto_decrease_promoted": "={{ $json.autoDecreasePromoted }}",
+            "applied_decrease_percent": "={{ $json.appliedDecreasePercent }}",
+            "display_status": "={{ $('Merged Data').item.json.displayStatus }}"
+          },
+          "matchingColumns": [
+            "Practice"
+          ],
+          "schema": [
+            {
+              "id": "Run Date",
+              "displayName": "Run Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "run_id",
+              "displayName": "run_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "practice_name",
+              "displayName": "practice_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "google_ads_id",
+              "displayName": "google_ads_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "HS ID",
+              "displayName": "HS ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_id",
+              "displayName": "campaign_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_name",
+              "displayName": "campaign_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "account_monthly_budget",
+              "displayName": "account_monthly_budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "account_actual_spend_mtd",
+              "displayName": "account_actual_spend_mtd",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_actual_spend_mtd",
+              "displayName": "campaign_actual_spend_mtd",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "account_expected_spend_mtd",
+              "displayName": "account_expected_spend_mtd",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "account_variance_percent",
+              "displayName": "account_variance_percent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "account_current_daily_budget",
+              "displayName": "account_current_daily_budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_current_daily_budget",
+              "displayName": "campaign_current_daily_budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "account_proposed_daily_budget",
+              "displayName": "account_proposed_daily_budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_proposed_daily_budget",
+              "displayName": "campaign_proposed_daily_budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "spend_share",
+              "displayName": "spend_share",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "yesterday_account_proposed",
+              "displayName": "yesterday_account_proposed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "account_proposed_multiple",
+              "displayName": "account_proposed_multiple",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_proposed_multiple",
+              "displayName": "campaign_proposed_multiple",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recommendation_type",
+              "displayName": "recommendation_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "applied",
+              "displayName": "applied",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "correction_percent",
+              "displayName": "correction_percent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "damped_from",
+              "displayName": "damped_from",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "display_status",
+              "displayName": "display_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "approval_status",
+              "displayName": "approval_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reviewed_by",
+              "displayName": "reviewed_by",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "classification",
+              "displayName": "classification",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "search_budget_lost_is",
+              "displayName": "search_budget_lost_is",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "yesterday_utilization",
+              "displayName": "yesterday_utilization",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "utilization_days",
+              "displayName": "utilization_days",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "chronic_demand_limited",
+              "displayName": "chronic_demand_limited",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "skip_reason",
+              "displayName": "skip_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "account_on_track",
+              "displayName": "account_on_track",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "all_demand_limited",
+              "displayName": "all_demand_limited",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "any_budget_limited",
+              "displayName": "any_budget_limited",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "conflicts_with_pacing",
+              "displayName": "conflicts_with_pacing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "seven_day_avg_utilization",
+              "displayName": "seven_day_avg_utilization",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "is_shared_budget",
+              "displayName": "is_shared_budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "shared_budget_siblings",
+              "displayName": "shared_budget_siblings",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "shared_budget_note",
+              "displayName": "shared_budget_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "raw_budget_resource_amount",
+              "displayName": "raw_budget_resource_amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "dow_multiplier",
+              "displayName": "dow_multiplier",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "final_daily_budget",
+              "displayName": "final_daily_budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "dow_flags",
+              "displayName": "dow_flags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "applied_decrease_percent",
+              "displayName": "applied_decrease_percent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "auto_decrease_promoted",
+              "displayName": "auto_decrease_promoted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3120,
+        528
+      ],
+      "id": "c3f04da7-3681-4534-95df-00b309d2eb67",
+      "name": "Add Campaign Logs",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1725937011,
+          "mode": "list",
+          "cachedResultName": "G Ads Pacing",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=1725937011"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Run Date",
+              "lookupValue": "={{ $now.minus(1, 'days').format('yyyy-MM-dd') }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1328,
+        752
+      ],
+      "id": "8698ca95-329c-482d-923a-d953c3fd5774",
+      "name": "Lookup Yesterdays Budget",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 6
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -464,
+        288
+      ],
+      "id": "87a040fb-3ee2-472f-8826-4c22c20d3de9",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "41a4e2d3-5785-4aa5-b198-635c7b95ae60",
+              "leftValue": "={{ $json.results.properties.google_ads_id.length }}",
+              "rightValue": 10,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        432,
+        176
+      ],
+      "id": "d6448783-420f-4073-baa2-d3827e2baf55",
+      "name": "Ads ID > 10 Char"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all();\n\n// Group all rows by google_ads_id\nconst byAccount = {};\n\nfor (const row of rows) {\n  const d = row.json;\n  const accountId = String(d.google_ads_id || '').trim();\n  if (!accountId) continue;\n  \n  if (!byAccount[accountId]) {\n    byAccount[accountId] = {\n        google_ads_id: Number(accountId),\n        customer_id: Number(accountId),  // ← add this line\n        yesterdays_account_proposed_daily_budget: 0,\n        yesterdays_campaigns: {}\n    };\n  }\n  \n  const cId = String(d.campaign_id || '').trim();\n  if (cId) {\n    byAccount[accountId].yesterdays_campaigns[cId] = {\n      proposedDailyBudget: Number(d.campaign_proposed_daily_budget) || 0,\n      currentDailyBudget: Number(d.campaign_current_daily_budget) || 0,\n      recommendationType: d.recommendation_type || null\n    };\n  }\n  \n  const acctProposed = Number(d.account_proposed_daily_budget);\n  if (acctProposed > 0) {\n    byAccount[accountId].yesterdays_account_proposed_daily_budget = acctProposed;\n  }\n}\n\n// Output one item per account\nreturn Object.values(byAccount).map(account => ({ json: account }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        752
+      ],
+      "id": "f5cba1c7-9ece-4605-92a7-6eb328908348",
+      "name": "Campaign Level Data Agg"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        560
+      ],
+      "id": "a358f3c2-ba49-4595-9812-dd80b5b2d763",
+      "name": "Split Out1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Edit Fields').item.json.adsId }}/googleAds:searchStream",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"query\": \"SELECT customer.id, campaign.id, campaign.name, campaign_budget.amount_micros, metrics.cost_micros, segments.date FROM campaign WHERE campaign.status = 'ENABLED' AND segments.date DURING LAST_7_DAYS\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1104,
+        560
+      ],
+      "id": "9c05ad7a-6bca-4907-a343-067063040738",
+      "name": "Last Week's Spend",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Group split-out items by customer.id\nconst grouped = {};\n\nfor (const item of $input.all()) {\n  const customerId = item.json.customer?.id;\n  if (!customerId) continue;\n  \n  if (!grouped[customerId]) {\n    grouped[customerId] = {\n      customer_id: Number(customerId),\n      google_ads_id: Number(customerId),  // ← add this line\n  sevenDayCampaigns: []\n    };\n  }\n  \n  grouped[customerId].sevenDayCampaigns.push({\n    campaign_id: item.json.campaign.id,\n    campaign_name: item.json.campaign.name,\n    cost_micros: item.json.metrics.costMicros,\n    budget_micros: item.json.campaignBudget.amountMicros,\n    date: item.json.segments.date\n  });\n}\n\nreturn Object.values(grouped).map(g => ({ json: g }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        560
+      ],
+      "id": "8c5efcc1-5205-4ab4-b0a6-0156ea49830f",
+      "name": "Group by Account"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "customer_id",
+              "field2": "google_ads_id"
+            }
+          ]
+        },
+        "joinMode": "keepEverything",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1776,
+        576
+      ],
+      "id": "cc0f87b8-a359-46ee-879f-8b687617f1cc",
+      "name": "Agg by Account",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2672,
+        528
+      ],
+      "id": "8e056e3e-7fe3-41e7-9aa4-d87b834a46bf",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "amount": 2
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2896,
+        384
+      ],
+      "id": "f63954eb-4781-418f-ad33-6a14f1b68f6e",
+      "name": "Wait",
+      "webhookId": "37bb5273-35ee-4c78-a8f1-3f40a86f71ce"
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "campaignBudgetResource",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        2896,
+        0
+      ],
+      "id": "6648e216-2668-4133-b1b0-4a8cadcfd700",
+      "name": "Remove Duplicates"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "actions.autoApply",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        2672,
+        0
+      ],
+      "id": "51f4c585-011e-4b70-898c-8c46abed5326",
+      "name": "Split Budgets"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Switch').item.json.adsId }}/campaignBudgets:mutate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"operations\": [\n    {\n      \"updateMask\": \"amountMicros\",\n      \"update\": {\n        \"resourceName\": \"{{ $json.campaignBudgetResource }}\",\n        \"amountMicros\": \"{{ $json.finalDailyBudget * 1000000 * $json.sharedBudgetSiblings}}\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3120,
+        0
+      ],
+      "id": "cbaaf04d-8264-4012-ba2e-0668b4b94f38",
+      "name": "Alter Budget",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Switch1').item.json.google_ads_id }}/googleAds:searchStream",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"query\": \"SELECT campaign.id, campaign.name, campaign_budget.amount_micros, campaign_budget.resource_name FROM campaign WHERE campaign.id = {{ $('Switch1').item.json.campaign_id }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        1488
+      ],
+      "id": "e4ebb3fd-1fde-4636-ac8f-994378e451cc",
+      "name": "Check Budget",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "path": "33a5e125-15ef-4d22-9a6e-09a89f66dcd0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -464,
+        1680
+      ],
+      "id": "75c5aa1c-a9f8-4ec2-95f9-afe06cdc107f",
+      "name": "Webhook",
+      "webhookId": "33a5e125-15ef-4d22-9a6e-09a89f66dcd0"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1725937011,
+          "mode": "list",
+          "cachedResultName": "G Ads Pacing",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=1725937011"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Run Date",
+              "lookupValue": "={{ $json.body.run_date }}"
+            },
+            {
+              "lookupColumn": "google_ads_id",
+              "lookupValue": "={{ $json.body.google_ads_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -240,
+        1680
+      ],
+      "id": "26753a65-11bf-4b41-851d-1d0820632330",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.recommendation_type }}",
+                    "rightValue": "BUDGET_INCREASE_APPROVAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "5ae16e3a-ac05-44a1-b593-50719cd1197a"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "budgetIncrease"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "59845352-2ad5-42e6-ad82-0a1ed293091c",
+                    "leftValue": "={{ $json.recommendation_type }}",
+                    "rightValue": "BUDGET_DECREASE_APPROVAL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "budgetDecrease"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "29f220fe-fc6a-41db-8c67-e578bb94306c",
+                    "leftValue": "={{ $json.recommendation_type }}",
+                    "rightValue": "PAUSE_CAMPAIGN",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "pauseCampaign"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        1664
+      ],
+      "id": "2c56df09-5533-4eae-805a-8560f536bcea",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Switch1').item.json.google_ads_id }}/googleAds:searchStream",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"query\": \"SELECT campaign.id, campaign.name, campaign_budget.amount_micros, campaign_budget.resource_name FROM campaign WHERE campaign.id = {{ $('Switch1').item.json.campaign_id }}\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        1680
+      ],
+      "id": "795a0122-df1a-4bfd-83fd-e48832d80f72",
+      "name": "Check Budget1",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Switch1').item.json.google_ads_id }}/campaignBudgets:mutate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"operations\": [\n    {\n      \"updateMask\": \"amountMicros\",\n      \"update\": {\n        \"resourceName\": \"{{ $json.results[0].campaignBudget.resourceName }}\",\n        \"amountMicros\": \"{{ $('Switch1').item.json.final_daily_budget * 1000000 * $('Switch1').item.json.shared_budget_siblings}}\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        656,
+        1488
+      ],
+      "id": "29f96870-cb93-419b-ab9c-0e343c62ab02",
+      "name": "Increase Budget",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Switch1').item.json.google_ads_id }}/campaignBudgets:mutate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"operations\": [\n    {\n      \"updateMask\": \"amountMicros\",\n      \"update\": {\n        \"resourceName\": \"{{ $json.results[0].campaignBudget.resourceName }}\",\n        \"amountMicros\": \"{{ $('Switch1').item.json.final_daily_budget * 1000000 * $('Switch1').item.json.shared_budget_siblings}}\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        656,
+        1680
+      ],
+      "id": "6507d88f-2eb2-4f80-816c-2f70987345cc",
+      "name": "Decrease Budget",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f18480b3-5eae-4499-8989-6dc3e9d21e5b",
+              "leftValue": "={{ $json.approval_status }}",
+              "rightValue": "Approved",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        -16,
+        1680
+      ],
+      "id": "36cc4d0c-dd46-46e5-bbfc-344626583115",
+      "name": "Approved Only"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "094bf729-ea65-41fa-8186-bdc8f6b7cdb2",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -464,
+        1264
+      ],
+      "id": "3e532d79-5a05-4805-b09c-494332f41480",
+      "name": "Campaign Budget Updates",
+      "webhookId": "094bf729-ea65-41fa-8186-bdc8f6b7cdb2"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1124903656,
+          "mode": "list",
+          "cachedResultName": "Campaign Budget Status",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=1124903656"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "campaign_id": "={{ $json.campaign_id }}",
+            "effective_mode": "={{ $json.effective_mode }}",
+            "status_reason": "={{ $json.status_reason }}",
+            "last_evaluated": "={{ $json.last_evaluated }}"
+          },
+          "matchingColumns": [
+            "campaign_id"
+          ],
+          "schema": [
+            {
+              "id": "campaign_id",
+              "displayName": "campaign_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "effective_mode",
+              "displayName": "effective_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status_reason",
+              "displayName": "status_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_evaluated",
+              "displayName": "last_evaluated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2672,
+        720
+      ],
+      "id": "6ec74780-6129-4a35-a461-5adff7caad5a",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "cachedResultName": "SEO Agent Posting Logs"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "2067037852",
+          "cachedResultName": "Campaign Budgets"
+        },
+        "options": {}
+      },
+      "id": "72c926e9-81eb-4dc5-ae8d-ccffc1ad3c90",
+      "name": "Read Budget Config (Pacing)",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        880,
+        192
+      ],
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rewrite of the Compute Status branch: read the steering verdict that Merged Data\n// ALREADY computed (single source of truth) instead of recomputing coverage/shared/drift.\n//\n// Merged Data items are ACCOUNT-level. Per-account verdict = j.campaignSteering\n// ({ eligible, effectiveMode, statusReason, managedIntent, configuredCount, enabledCount,\n//    perCampaignReason }).\n// Per-campaign rows live under actions.log[]; a campaign is \"configured\" iff it was given a\n// per-campaign target upstream (campaignMonthlyTarget != null, set in Data for Pacing Agent).\n//\n// Status tab contract (gid 1124903656): campaign_id | effective_mode | status_reason | last_evaluated\n// One row per CONFIGURED campaign on a MANAGED account. Account-level-only accounts emit nothing.\n//\n// PHASE 5: status_reason is now PER CAMPAIGN. On a fallen-back account each configured campaign\n// reports its own cause (drift / shared_budget), sum_overshoot is account-wide, and a campaign\n// that is individually fine but blocked by a broken sibling reports blocked_by_sibling.\n\nconst items = $input.all();\nconst now = new Date().toISOString();\nconst statusRows = [];\n\nfor (const item of items) {\n  const j = item.json || item;\n  const steering = j.campaignSteering || {};\n\n  // Only accounts the operator intends to manage produce status rows.\n  if (steering.managedIntent !== true) continue;\n\n  const effectiveMode   = steering.effectiveMode || 'account';\n  const accountReason    = steering.statusReason  || 'good';\n  const accountEligible  = steering.eligible === true;\n  const perCampaign      = steering.perCampaignReason || {};\n\n  const log = (j.actions && Array.isArray(j.actions.log)) ? j.actions.log : [];\n\n  for (const c of log) {\n    // \"Configured\" = this campaign carries an operator target (has a config row).\n    const configured = c && c.campaignMonthlyTarget != null;\n    if (!configured) continue;\n\n    const cid = c.campaignId != null ? String(c.campaignId) : '';\n    if (!cid) continue;\n\n    // PHASE 5 — per-campaign reason resolution\n    let reason;\n    if (accountEligible) {\n      reason = 'good'; // account is steering; every configured campaign is good\n    } else {\n      const own = perCampaign[cid]; // 'drift' | 'shared_budget' | 'ok' | undefined\n      if (own === 'drift')              reason = 'drift';\n      else if (own === 'shared_budget') reason = 'shared_budget';\n      else if (accountReason === 'sum_overshoot') reason = 'sum_overshoot';\n      else                              reason = 'blocked_by_sibling'; // this one's fine; a sibling broke it\n    }\n\n    statusRows.push({\n      json: {\n        campaign_id: cid,\n        effective_mode: effectiveMode,\n        status_reason: reason,\n        last_evaluated: now\n      }\n    });\n  }\n}\n\nreturn statusRows;\n"
+      },
+      "id": "ba670c81-9415-4f76-844a-a24be73171e3",
+      "name": "Write Campaign Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2448,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Edit Fields').item.json.adsId }}/googleAds:searchStream",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"query\": \"SELECT metrics.cost_micros, customer.currency_code FROM customer WHERE segments.date DURING THIS_MONTH\"}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        0
+      ],
+      "id": "0da368e4-a0a2-4312-9587-065a9e48b727",
+      "name": "Account Spend (all statuses)",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "actions.pauseList",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        2672,
+        192
+      ],
+      "id": "fce104b6-74f8-4737-9628-520235e9b2eb",
+      "name": "Split pause actions"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Switch1').item.json.google_ads_id }}/campaigns:mutate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"operations\": [\n    {\n      \"updateMask\": \"status\",\n      \"update\": {\n        \"resourceName\": \"customers/{{ $('Switch1').item.json.google_ads_id }}/campaigns/{{ $('Switch1').item.json.campaign_id }}\",\n        \"status\": \"PAUSED\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        1872
+      ],
+      "id": "3cc2aa63-1f1b-4e8c-af02-fbf85cbf38c9",
+      "name": "Pause Campaign (manual)",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $('Switch').item.json.adsId }}/campaigns:mutate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"operations\": [\n    {\n      \"updateMask\": \"status\",\n      \"update\": {\n        \"resourceName\": \"customers/{{ $('Switch').item.json.adsId }}/campaigns/{{ $json.campaignId }}\",\n        \"status\": \"PAUSED\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2896,
+        192
+      ],
+      "id": "1b8577cb-8a6a-4e92-9506-710e652afe0f",
+      "name": "Pause Campaign (auto)",
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1124903656,
+          "mode": "list",
+          "cachedResultName": "Campaign Budget Status",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=1124903656"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "campaign_id": "={{ $('Split pause actions').item.json.campaignId }}",
+            "google_ads_id": "={{ $('Switch').item.json.adsId }}",
+            "paused_by_agent": "={{ true }}",
+            "paused_date": "={{ $now.toFormat('yyyy-LL-dd') }}",
+            "paused_reason": "={{ $('Split pause actions').item.json.pauseReason }}"
+          },
+          "matchingColumns": [
+            "campaign_id"
+          ],
+          "schema": [
+            {
+              "id": "campaign_id",
+              "displayName": "campaign_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "effective_mode",
+              "displayName": "effective_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status_reason",
+              "displayName": "status_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "last_evaluated",
+              "displayName": "last_evaluated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "paused_by_agent",
+              "displayName": "paused_by_agent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "paused_date",
+              "displayName": "paused_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "paused_reason",
+              "displayName": "paused_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "google_ads_id",
+              "displayName": "google_ads_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3120,
+        192
+      ],
+      "id": "590dbf4e-55b1-4d1c-8102-963130f1c4f5",
+      "name": "Append or update row in Campaign Status",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtHour": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -464,
+        1040
+      ],
+      "id": "62f0e50f-4c16-4c8e-aabc-9de2761c7f85",
+      "name": "Monthly Restart"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1124903656,
+          "mode": "list",
+          "cachedResultName": "Campaign Budget Status",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=1124903656"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "paused_by_agent",
+              "lookupValue": "={{ true ?? \"TRUE\"}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -240,
+        1040
+      ],
+      "id": "029aa158-fb3e-43e9-8895-0e50084f5370",
+      "name": "Get row(s) in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 10,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -16,
+        1040
+      ],
+      "id": "bf9f7ddd-90d9-46a7-92a6-8cadcc8f8dbe",
+      "name": "Loop Over Items2"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        432,
+        976
+      ],
+      "id": "d1c19d13-8a9f-4004-9568-bf30df902d52",
+      "name": "Wait2",
+      "webhookId": "d39d53bd-914d-4d60-95a5-e7ce388933f0"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://googleads.googleapis.com/v23/customers/{{ $json.google_ads_id }}/campaigns:mutate",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleAdsOAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "PBQIpWxlOfFDnhgU9tMB_g"
+            },
+            {
+              "name": "login-customer-id",
+              "value": "=8031476830"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"operations\": [\n    {\n      \"updateMask\": \"status\",\n      \"update\": {\n        \"resourceName\": \"customers/{{ $json.google_ads_id }}/campaigns/{{ $json.campaign_id }}\",\n        \"status\": \"ENABLED\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        976
+      ],
+      "id": "f1675665-30c6-477a-9ce6-a345fc1b1244",
+      "name": "Re-Enable Campaign",
+      "alwaysOutputData": false,
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "A8hW6vrladCwvLQb",
+          "name": "Google Ads account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1124903656,
+          "mode": "list",
+          "cachedResultName": "Campaign Budget Status",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=1124903656"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "campaign_id": "={{ $('Loop Over Items2').item.json.campaign_id }}",
+            "paused_by_agent": "={{ false }}",
+            "paused_date": "={{ '' }}",
+            "paused_reason": "={{ '' }}"
+          },
+          "matchingColumns": [
+            "campaign_id"
+          ],
+          "schema": [
+            {
+              "id": "campaign_id",
+              "displayName": "campaign_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "effective_mode",
+              "displayName": "effective_mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status_reason",
+              "displayName": "status_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "last_evaluated",
+              "displayName": "last_evaluated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "paused_by_agent",
+              "displayName": "paused_by_agent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "paused_date",
+              "displayName": "paused_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "paused_reason",
+              "displayName": "paused_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "google_ads_id",
+              "displayName": "google_ads_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        656,
+        1040
+      ],
+      "id": "36b11397-01b3-435f-868c-41e52778f454",
+      "name": "Append or update row in Campaign Status1",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================================\n// Build Account Rows  (v2 — closes defects 1 and 3)\n// ============================================================================\n// Emits ONLY rows belonging to the account in this webhook payload.\n// Every other account's rows are never read into the output, never rewritten,\n// and therefore cannot be lost by a concurrent run.\n//\n// Match key downstream is `campaign_id`, globally unique in Google Ads.\n//\n// --- REMOVAL IS EXPLICIT, NEVER INFERRED -----------------------------------\n// A campaign is tombstoned if and only if the portal names it in\n// `removed_campaign_ids`. Absence from `campaigns[]` means nothing — the portal\n// legitimately filters campaigns out (shared-budget campaigns are excluded from\n// the managed set).\n//\n// --- v2 CHANGES -------------------------------------------------------------\n// DEFECT 1 — `managed` was unreachable when `campaigns[]` was empty, so an\n//   operator could not unmanage an account from the portal. `managed` is an\n//   ACCOUNT-level flag stored per row, so it is now swept across ALL of the\n//   account's existing non-tombstoned rows on every save. Nothing is deleted or\n//   tombstoned by the sweep; only `managed` (+ snapshot) and the audit stamps\n//   change. `budget_dollars` is preserved exactly as read.\n//   `managed` must now be sent EXPLICITLY — a missing/unparseable value throws\n//   rather than defaulting to FALSE, because defaulting would unmanage the whole\n//   account on any save that omitted the key.\n//\n// DEFECT 3 — `account_monthly_budget_snapshot` was silently dropped. It is now\n//   mapped through to its own column (append it to the RIGHT of `active`).\n//   It is OPTIONAL: when the payload omits it, each row keeps whatever value it\n//   already had, so a portal that doesn't send it can never blank the column.\n//\n// NOTE ON DEFECT 2 (500 on a legitimate no-op): NOT fixed here. Returning zero\n//   items is still possible — see the change package for the two options. The\n//   sweep does shrink the no-op window substantially: any save that changes\n//   `managed` or the snapshot on an account with existing rows now emits rows.\n// ============================================================================\n\nconst inc = $('Campaign Budget Updates').first().json.body || {};\nconst acct = inc.google_ads_id != null ? String(inc.google_ads_id).trim() : '';\nconst now = new Date().toISOString();\n\n// --- Payload guards: refuse to write rather than corrupt the tab ------------\nif (!acct) {\n  throw new Error(\n    'Campaign Budget Updates: payload is missing google_ads_id. Refusing to write.'\n  );\n}\nif (!Array.isArray(inc.campaigns)) {\n  throw new Error(\n    'Campaign Budget Updates: payload.campaigns is not an array. Refusing to write ' +\n    '(account ' + acct + ').'\n  );\n}\nif (inc.removed_campaign_ids != null && !Array.isArray(inc.removed_campaign_ids)) {\n  throw new Error(\n    'Campaign Budget Updates: removed_campaign_ids is present but is not an array ' +\n    '(account ' + acct + '). Refusing to write.'\n  );\n}\n\n// `managed` must be explicit. It is now applied to every row of the account, so\n// silently defaulting a missing value to FALSE would unmanage the whole account.\n// Accepts booleans and the strings true/false in any case. Anything else throws.\nlet managedFlag;\nif (inc.managed === true || inc.managed === false) {\n  managedFlag = inc.managed ? 'TRUE' : 'FALSE';\n} else if (typeof inc.managed === 'string' && /^(true|false)$/i.test(inc.managed.trim())) {\n  managedFlag = inc.managed.trim().toUpperCase();\n} else {\n  throw new Error(\n    'Campaign Budget Updates: `managed` must be sent as an explicit boolean ' +\n    '(got ' + JSON.stringify(inc.managed) + ', account ' + acct + '). Refusing to write — ' +\n    'defaulting it would unmanage every campaign on this account.'\n  );\n}\n\nconst updatedBy = inc.updated_by != null ? inc.updated_by : '';\nconst practiceName = inc.practice_name != null ? inc.practice_name : '';\n\n// Optional account-level snapshot. Absent → preserve each row's existing value.\nconst hasSnapshot = inc.account_monthly_budget_snapshot != null &&\n                    String(inc.account_monthly_budget_snapshot).trim() !== '';\nconst snapshotIn = hasSnapshot ? inc.account_monthly_budget_snapshot : null;\n\n// Explicit removal list. Absent key → empty set → nothing is tombstoned.\nconst removedIds = new Set(\n  (inc.removed_campaign_ids || [])\n    .map(x => String(x != null ? x : '').trim())\n    .filter(Boolean)\n);\n\n// --- Index this account's existing rows -------------------------------------\n// Used to (a) resolve a missing snapshot per row, (b) drive the managed sweep.\nconst existingByCid = new Map();\nfor (const item of $input.all()) {\n  const r = (item && item.json) || {};\n  if (String(r.google_ads_id != null ? r.google_ads_id : '').trim() !== acct) continue;\n  const cid = String(r.campaign_id != null ? r.campaign_id : '').trim();\n  if (cid === '') continue;\n  existingByCid.set(cid, r);\n}\n\nconst norm = v => String(v != null ? v : '').trim().toUpperCase();\nconst isTombstoned = r => norm(r.active !== undefined && r.active !== '' ? r.active : 'TRUE') === 'FALSE';\n\n// Resolve the snapshot for a row: payload value wins, else keep what's there.\nfunction resolveSnapshot(existingRow) {\n  if (hasSnapshot) return snapshotIn;\n  if (existingRow && existingRow.account_monthly_budget_snapshot != null) {\n    return existingRow.account_monthly_budget_snapshot;\n  }\n  return '';\n}\n\n// --- 1. LIVE rows from the incoming payload --------------------------------\nconst rows = [];\nconst seen = new Set();\n\nfor (const c of inc.campaigns) {\n  if (!c) continue;\n  const cid = String(c.campaign_id != null ? c.campaign_id : '').trim();\n  if (cid === '') continue;\n  if (seen.has(cid)) continue; // payload sent the same campaign twice\n\n  // A campaign cannot be both sent and declared removed. Sent wins, loudly.\n  if (removedIds.has(cid)) {\n    throw new Error(\n      'Campaign Budget Updates: campaign ' + cid + ' appears in both campaigns[] and ' +\n      'removed_campaign_ids (account ' + acct + '). Refusing to write.'\n    );\n  }\n\n  seen.add(cid);\n  rows.push({\n    google_ads_id: acct,\n    practice_name: practiceName,\n    campaign_id: cid,\n    campaign_name: c.campaign_name != null ? c.campaign_name : '',\n    budget_dollars: c.budget_dollars,\n    managed: managedFlag,\n    updated_by: updatedBy,\n    updated_at: now,\n    active: 'TRUE',\n    account_monthly_budget_snapshot: resolveSnapshot(existingByCid.get(cid))\n  });\n}\n\n// --- 2. TOMBSTONE only the campaigns the portal explicitly declared removed --\nif (removedIds.size > 0) {\n  for (const [cid, r] of existingByCid) {\n    if (!removedIds.has(cid)) continue; // not declared removed — leave it alone\n    if (seen.has(cid)) continue;\n    if (isTombstoned(r)) continue;      // already tombstoned — don't rewrite\n\n    seen.add(cid);\n    rows.push({\n      google_ads_id: acct,\n      practice_name: r.practice_name != null ? r.practice_name : practiceName,\n      campaign_id: cid,          // PRESERVED — this is the upsert match key\n      campaign_name: r.campaign_name != null && r.campaign_name !== ''\n        ? r.campaign_name\n        : cid,\n      budget_dollars: '',\n      managed: 'FALSE',\n      updated_by: updatedBy,\n      updated_at: now,\n      active: 'FALSE',\n      account_monthly_budget_snapshot: resolveSnapshot(r)\n    });\n  }\n}\n\n// --- 3. SWEEP `managed` (+ snapshot) across the account's remaining rows -----\n// DEFECT 1 FIX. `managed` is account-level; every live row of the account must\n// agree with the flag the operator just sent. Without this, unchecking \"managed\"\n// with an empty campaigns[] wrote nothing and the account stayed managed forever.\n//\n// Deliberately conservative: skips tombstones, preserves budget_dollars and\n// campaign_name verbatim, and writes nothing when the row already agrees.\nfor (const [cid, r] of existingByCid) {\n  if (seen.has(cid)) continue;   // already emitted above\n  if (isTombstoned(r)) continue; // tombstones stay as they are\n\n  const managedDiffers = norm(r.managed) !== managedFlag;\n  const snapDiffers = hasSnapshot &&\n    String(r.account_monthly_budget_snapshot != null ? r.account_monthly_budget_snapshot : '').trim()\n      !== String(snapshotIn).trim();\n\n  if (!managedDiffers && !snapDiffers) continue; // nothing to change — no write\n\n  seen.add(cid);\n  rows.push({\n    google_ads_id: acct,\n    practice_name: r.practice_name != null && r.practice_name !== '' ? r.practice_name : practiceName,\n    campaign_id: cid,\n    campaign_name: r.campaign_name != null ? r.campaign_name : '',\n    budget_dollars: r.budget_dollars != null ? r.budget_dollars : '', // PRESERVED\n    managed: managedFlag,\n    updated_by: updatedBy,\n    updated_at: now,\n    active: 'TRUE',\n    account_monthly_budget_snapshot: resolveSnapshot(r)\n  });\n}\n\n// Nothing to do → touch the sheet zero times.\n// NOTE: this is the path that produces the defect-2 false 500 under\n// responseMode: lastNode. See the change package for the fix options.\nif (rows.length === 0) return [];\n\nreturn rows.map(json => ({ json }));"
+      },
+      "id": "33779c54-fa31-4b05-9c02-20c3fc5d1429",
+      "name": "Build Account Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        1264
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2067037852,
+          "mode": "list",
+          "cachedResultName": "Campaign Budgets",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=2067037852"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "campaign_id"
+          ],
+          "schema": [
+            {
+              "id": "google_ads_id",
+              "displayName": "google_ads_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "practice_name",
+              "displayName": "practice_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_id",
+              "displayName": "campaign_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "campaign_name",
+              "displayName": "campaign_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "budget_dollars",
+              "displayName": "budget_dollars",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "managed",
+              "displayName": "managed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_by",
+              "displayName": "updated_by",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "active",
+              "displayName": "active",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "cellFormat": "RAW"
+        }
+      },
+      "id": "ad7e09bb-ad25-41dc-ab38-4510e84a07ed",
+      "name": "Upsert Budget Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        1264
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw",
+          "mode": "list",
+          "cachedResultName": "SEO Agent Posting Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2067037852,
+          "mode": "list",
+          "cachedResultName": "Campaign Budgets",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1liseFd-xTZQCRgJNXWpbUvzyG_v_1GFD5UFOW2qkaLw/edit#gid=2067037852"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "50a0279d-8db6-4438-b4f9-253176a20162",
+      "name": "Read Existing Budgets1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -240,
+        1264
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "SB9AiGdlEtuI0Tlf",
+          "name": "Mark (SmartWork) Google Account - Dec 12"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Search HubSpot Companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search HubSpot Companies": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Ads ID > 10 Char",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Budget pacing (current month spend)1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Budget Config (Pacing)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Account Spend (all statuses)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Budget pacing (current month spend)1": {
+      "main": [
+        [
+          {
+            "node": "Lookup Yesterdays Budget",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Last Week's Spend",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Data for Pacing Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data for Pacing Agent": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Merged Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Split Budgets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [],
+        [
+          {
+            "node": "Split pause actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merged Data": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write Campaign Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Data": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Campaign Logs": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Yesterdays Budget": {
+      "main": [
+        [
+          {
+            "node": "Campaign Level Data Agg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Search HubSpot Companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ads ID > 10 Char": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign Level Data Agg": {
+      "main": [
+        [
+          {
+            "node": "Agg by Account",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Split Out1": {
+      "main": [
+        [
+          {
+            "node": "Group by Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Last Week's Spend": {
+      "main": [
+        [
+          {
+            "node": "Split Out1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Group by Account": {
+      "main": [
+        [
+          {
+            "node": "Agg by Account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agg by Account": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Add Campaign Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Alter Budget",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Budgets": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Approved Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Check Budget",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Budget1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pause Campaign (manual)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Budget": {
+      "main": [
+        [
+          {
+            "node": "Increase Budget",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Budget1": {
+      "main": [
+        [
+          {
+            "node": "Decrease Budget",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved Only": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Campaign Budget Updates": {
+      "main": [
+        [
+          {
+            "node": "Read Existing Budgets1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Campaign Status": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split pause actions": {
+      "main": [
+        [
+          {
+            "node": "Pause Campaign (auto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet": {
+      "main": [
+        []
+      ]
+    },
+    "Pause Campaign (auto)": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in Campaign Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Restart": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items2": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Re-Enable Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait2": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in Campaign Status1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-Enable Campaign": {
+      "main": [
+        [
+          {
+            "node": "Wait2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in Campaign Status1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Account Rows": {
+      "main": [
+        [
+          {
+            "node": "Upsert Budget Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Existing Budgets1": {
+      "main": [
+        [
+          {
+            "node": "Build Account Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "aBOI60yyvpBmo9mo",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "d70b0566-729e-48c9-89cf-c4713eb0fbf9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "6c1ea47ac23b5e9ec90dddc1c4399ebc3d58193b4e29c584f40ccecced797b17"
+  },
+  "nodeGroups": [],
+  "id": "84DEmpRQjnmVOgov",
+  "tags": []
+}

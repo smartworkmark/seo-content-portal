@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Google Ads Pacing — V3 Updates</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .grid-bg {
+      background-image: radial-gradient(circle, #e2e8f0 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased">
+
+<!-- ============================================ HERO ============================================ -->
+<section class="grid-bg border-b border-slate-200">
+  <div class="max-w-5xl mx-auto px-8 py-24">
+    <div class="inline-flex items-center gap-2 bg-indigo-100 text-indigo-700 text-xs font-semibold px-3 py-1 rounded-full mb-6">
+      <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
+      RELEASED MAY 1, 2026
+    </div>
+    <h1 class="text-5xl font-bold tracking-tight text-slate-900 mb-4 leading-tight">
+      Google Ads Pacing<br />
+      <span class="text-indigo-700">V3 — Explanatory Signals</span>
+    </h1>
+    <p class="text-xl text-slate-600 max-w-2xl leading-relaxed">
+      The pacing agent now tells you <em>why</em> — not just what. Every recommendation, skip, and flag comes with the data that produced it, so reviews go faster and trust goes up.
+    </p>
+    <div class="mt-10 grid grid-cols-3 gap-6 max-w-2xl">
+      <div>
+        <div class="text-3xl font-bold text-slate-900">12</div>
+        <div class="text-sm text-slate-500">New explanatory signals</div>
+      </div>
+      <div>
+        <div class="text-3xl font-bold text-slate-900">9</div>
+        <div class="text-sm text-slate-500">UI improvements</div>
+      </div>
+      <div>
+        <div class="text-3xl font-bold text-slate-900">0</div>
+        <div class="text-sm text-slate-500">New clicks required</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ THE WHY ============================================ -->
+<section class="border-b border-slate-200 bg-white">
+  <div class="max-w-5xl mx-auto px-8 py-20">
+    <div class="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-3">The problem</div>
+    <h2 class="text-3xl font-bold mb-6">A recommendation without context is a guess.</h2>
+    <div class="grid md:grid-cols-2 gap-10 items-start">
+      <div>
+        <div class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">Before V3</div>
+        <ul class="space-y-3 text-slate-700">
+          <li class="flex gap-3">
+            <span class="text-rose-500 font-bold">✕</span>
+            <span>Saw a "No change" flag with no reason — was the agent right, or did it miss something?</span>
+          </li>
+          <li class="flex gap-3">
+            <span class="text-rose-500 font-bold">✕</span>
+            <span>Couldn't tell if a campaign was hitting budget every day or coasting at 30% utilization.</span>
+          </li>
+          <li class="flex gap-3">
+            <span class="text-rose-500 font-bold">✕</span>
+            <span>"Budget increase" recommendations on accounts already over-spending — no warning.</span>
+          </li>
+          <li class="flex gap-3">
+            <span class="text-rose-500 font-bold">✕</span>
+            <span>Investigated empty campaign tables only to discover the issue wasn't budget at all.</span>
+          </li>
+        </ul>
+      </div>
+      <div>
+        <div class="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-3">After V3</div>
+        <ul class="space-y-3 text-slate-700">
+          <li class="flex gap-3">
+            <span class="text-emerald-500 font-bold">✓</span>
+            <span>Every "No change" carries a one-line reason ("Demand-side issue", "Not budget-constrained", etc.).</span>
+          </li>
+          <li class="flex gap-3">
+            <span class="text-emerald-500 font-bold">✓</span>
+            <span>7-day utilization bar visible on every campaign — orange / green / blue at a glance.</span>
+          </li>
+          <li class="flex gap-3">
+            <span class="text-emerald-500 font-bold">✓</span>
+            <span>⚠ icon flags any recommendation that runs counter to the account's pacing direction.</span>
+          </li>
+          <li class="flex gap-3">
+            <span class="text-emerald-500 font-bold">✓</span>
+            <span>All-demand-limited accounts get a banner pointing the reviewer at targeting / bids, not budget.</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ FEATURE GRID ============================================ -->
+<section class="border-b border-slate-200">
+  <div class="max-w-5xl mx-auto px-8 py-20">
+    <div class="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-3">What's new</div>
+    <h2 class="text-3xl font-bold mb-10">Nine improvements, one consistent principle.</h2>
+    <div class="grid md:grid-cols-3 gap-5">
+      <!-- Card -->
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-sky-50 text-sky-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">Classification</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Budget vs demand badges</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Every campaign is tagged so it's instantly clear which constraint applies.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-emerald-50 text-emerald-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">Utilization</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">7-day utilization bar</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Color-coded bar shows how hard each campaign has been pushing budget.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-slate-100 text-slate-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">Skip reasons</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Why the agent didn't act</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">"No change" rows now carry a one-line explanation underneath.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-violet-50 text-violet-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">Banner</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">INVESTIGATE banner</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">All-demand-limited accounts get pointed at targeting and bids, not budget.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-amber-50 text-amber-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">Conflict ⚠</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Counter-direction warning</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Flags campaigns whose recommendation runs against the account's pacing.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-orange-50 text-orange-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">Chronic</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Chronic underperformer badge</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Surfaces campaigns that have been underperforming 7+ days running.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-emerald-50 text-emerald-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">On-track</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">De-emphasis dimming</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Accounts that need no action are dimmed — focus stays on what matters.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">Mixed</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Mixed-account chip</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">"1 of 3 campaigns budget-limited" header chip on partial accounts.</p>
+      </div>
+      <div class="bg-white rounded-xl p-6 ring-1 ring-slate-200">
+        <div class="inline-block bg-indigo-50 text-indigo-700 text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded mb-3">Filter</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Severity filter</h3>
+        <p class="text-sm text-slate-600 leading-relaxed">Multi-select dropdown to narrow the table to only what needs attention.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ DEEP DIVE 1 — Detail panel ============================================ -->
+<section class="border-b border-slate-200 bg-white">
+  <div class="max-w-5xl mx-auto px-8 py-20">
+    <div class="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-3">Deep dive 1</div>
+    <h2 class="text-3xl font-bold mb-3">Every campaign row, fully explained.</h2>
+    <p class="text-slate-600 mb-10 max-w-3xl">
+      The expanded campaign breakdown is the centerpiece of V3. Each row now answers three questions at once: <em>What's the constraint? How hard is it pushing? What did the agent decide and why?</em>
+    </p>
+
+    <!-- MOCK PANEL -->
+    <div class="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-6">
+      <!-- Account header row -->
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <span class="bg-violet-50 ring-1 ring-violet-200 text-violet-700 text-[11px] font-bold tracking-wider px-2.5 py-1 rounded-full">INVESTIGATE</span>
+          <span class="font-semibold text-slate-900">Advanced Dental Care of Dover</span>
+          <span class="text-sm text-slate-500">$2,000 budget · -100% variance</span>
+        </div>
+        <span class="text-indigo-700 text-sm font-medium">Needs review</span>
+      </div>
+
+      <!-- Campaign breakdown table -->
+      <div class="bg-white rounded-lg ring-1 ring-slate-200 p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[11px] font-bold text-slate-600 uppercase tracking-wider">Campaign Breakdown</div>
+          <div class="text-xs text-slate-500">
+            <span class="font-semibold text-sky-700">1</span> of <span class="font-semibold">2</span> campaigns budget-limited
+          </div>
+        </div>
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-slate-500 text-xs">
+              <th class="py-2 pr-3 font-semibold">Campaign</th>
+              <th class="py-2 pr-3 font-semibold">Classification</th>
+              <th class="py-2 pr-3 font-semibold">7-day util</th>
+              <th class="py-2 pr-3 font-semibold text-right">Spend MTD</th>
+              <th class="py-2 pr-3 font-semibold text-right">Current /day</th>
+              <th class="py-2 pr-3 font-semibold text-right">Proposed</th>
+              <th class="py-2 pr-3 font-semibold">Recommendation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Demand-limited row -->
+            <tr class="border-t border-slate-100">
+              <td class="py-3 pr-3 font-semibold text-slate-900">Local Dentistry</td>
+              <td class="py-3 pr-3"><span class="bg-slate-100 ring-1 ring-slate-200 text-slate-600 text-[11px] font-semibold px-2 py-0.5 rounded-full">demand-limited</span></td>
+              <td class="py-3 pr-3">
+                <div class="flex items-center gap-2">
+                  <div class="relative h-1.5 w-20 rounded-full bg-emerald-100">
+                    <div class="absolute left-0 top-0 h-full rounded-full bg-emerald-500" style="width: 87%"></div>
+                  </div>
+                  <span class="text-xs font-semibold text-emerald-700">87%</span>
+                </div>
+              </td>
+              <td class="py-3 pr-3 text-right text-slate-600">$0</td>
+              <td class="py-3 pr-3 text-right text-slate-600">$72</td>
+              <td class="py-3 pr-3 text-right text-slate-600">$58</td>
+              <td class="py-3 pr-3">
+                <div class="flex flex-col gap-0.5">
+                  <span class="bg-slate-100 text-slate-600 text-[11px] font-semibold px-2.5 py-0.5 rounded-full w-fit">No change</span>
+                  <span class="text-[11px] italic text-slate-500">Not budget-constrained</span>
+                </div>
+              </td>
+            </tr>
+            <!-- Budget-limited with conflict -->
+            <tr class="border-t border-slate-100">
+              <td class="py-3 pr-3 font-semibold text-slate-900">
+                <div class="flex items-center gap-1.5">
+                  <span>Performance Max — General Dentist</span>
+                  <span class="text-amber-600 text-sm" title="Flagged: counter to account direction. For visibility — no action needed.">⚠</span>
+                </div>
+              </td>
+              <td class="py-3 pr-3"><span class="bg-sky-50 ring-1 ring-sky-200 text-sky-700 text-[11px] font-semibold px-2 py-0.5 rounded-full">budget-limited</span></td>
+              <td class="py-3 pr-3">
+                <div class="flex items-center gap-2">
+                  <div class="relative h-1.5 w-20 rounded-full bg-sky-100">
+                    <div class="absolute left-0 top-0 h-full rounded-full bg-sky-500" style="width: 100%"></div>
+                  </div>
+                  <span class="text-xs font-semibold text-sky-700">178%</span>
+                </div>
+              </td>
+              <td class="py-3 pr-3 text-right text-slate-600">$0</td>
+              <td class="py-3 pr-3 text-right text-slate-600">$15</td>
+              <td class="py-3 pr-3 text-right text-slate-600">$12</td>
+              <td class="py-3 pr-3"><span class="bg-sky-50 ring-1 ring-sky-200 text-sky-700 text-[11px] font-semibold px-2.5 py-0.5 rounded-full">Decrease (auto)</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Annotations -->
+    <div class="mt-8 grid md:grid-cols-3 gap-5 text-sm">
+      <div class="border-l-4 border-sky-500 pl-4">
+        <div class="font-semibold text-slate-900 mb-1">Classification badge</div>
+        <p class="text-slate-600">Sky-blue = budget-limited (hitting the cap). Slate = demand-limited (capped budget but no demand).</p>
+      </div>
+      <div class="border-l-4 border-emerald-500 pl-4">
+        <div class="font-semibold text-slate-900 mb-1">7-day utilization</div>
+        <p class="text-slate-600">Bar fill + numeric label. Orange &lt;50%, green 50–94%, blue ≥95%. Trust check on classification.</p>
+      </div>
+      <div class="border-l-4 border-amber-500 pl-4">
+        <div class="font-semibold text-slate-900 mb-1">Skip reason / conflict ⚠</div>
+        <p class="text-slate-600">Italic subtext explains "No change". The ⚠ icon is supervisory only — no action required.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ DEEP DIVE 2 — Banners & on-track ============================================ -->
+<section class="border-b border-slate-200">
+  <div class="max-w-5xl mx-auto px-8 py-20">
+    <div class="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-3">Deep dive 2</div>
+    <h2 class="text-3xl font-bold mb-3">Direct the reviewer's attention.</h2>
+    <p class="text-slate-600 mb-10 max-w-3xl">
+      Not every account needs the same scrutiny. V3 surfaces the right framing per state — banners for accounts that need a different kind of review, and de-emphasis for accounts that are already on track.
+    </p>
+
+    <div class="space-y-6">
+      <!-- INVESTIGATE banner -->
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">All-demand-limited account</div>
+        <div class="bg-violet-50 ring-1 ring-violet-200 text-violet-900 rounded-lg px-5 py-4">
+          <div class="font-semibold mb-1">Demand-side issue — no budget changes needed.</div>
+          <div class="text-sm text-violet-800 leading-relaxed">All campaigns are running below budget capacity. This isn't a budget problem. Recommend reviewing search volume, bid competitiveness, targeting, and ad quality.</div>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">Replaces the empty "no recommendations" state. Tells the reviewer where to actually look.</p>
+      </div>
+
+      <!-- Grace banner -->
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Month-start grace period</div>
+        <div class="bg-slate-100 ring-1 ring-slate-200 text-slate-700 rounded-lg px-5 py-4">
+          <div class="font-semibold mb-1">Month start — no actions taken.</div>
+          <div class="text-sm leading-relaxed">Day 1 data is insufficient for budget decisions. Monitoring resumes tomorrow.</div>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">Sets the right expectation — the agent is paused on purpose, not broken.</p>
+      </div>
+
+      <!-- On-track row -->
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">On-track account row (de-emphasized)</div>
+        <div class="bg-white ring-1 ring-slate-200 rounded-lg overflow-hidden">
+          <table class="w-full text-sm">
+            <tbody>
+              <tr class="opacity-60">
+                <td class="py-3 px-4 text-slate-700 mono">05/01</td>
+                <td class="py-3 px-4"><span class="bg-emerald-50 ring-1 ring-emerald-200 text-emerald-700 text-[11px] font-bold tracking-wider px-2.5 py-1 rounded-full">OK</span></td>
+                <td class="py-3 px-4 font-medium text-slate-900">Bass Lake Dental</td>
+                <td class="py-3 px-4 text-right text-slate-600">$2,500</td>
+                <td class="py-3 px-4 text-right text-slate-900 font-medium">$1,820</td>
+                <td class="py-3 px-4 text-right text-slate-600 font-semibold">+1%</td>
+                <td class="py-3 px-4"><span class="bg-emerald-50 ring-1 ring-emerald-200 text-emerald-700 text-xs font-semibold px-2 py-0.5 rounded-full">On track</span></td>
+              </tr>
+              <tr class="border-t border-slate-100">
+                <td class="py-3 px-4 text-slate-700 mono">05/01</td>
+                <td class="py-3 px-4"><span class="bg-violet-50 ring-1 ring-violet-200 text-violet-700 text-[11px] font-bold tracking-wider px-2.5 py-1 rounded-full">INVESTIGATE</span></td>
+                <td class="py-3 px-4 font-medium text-slate-900">Able Dentistry</td>
+                <td class="py-3 px-4 text-right text-slate-600">$2,500</td>
+                <td class="py-3 px-4 text-right text-slate-900 font-medium">$0</td>
+                <td class="py-3 px-4 text-right text-rose-600 font-semibold">-100%</td>
+                <td class="py-3 px-4 text-indigo-700 text-sm font-medium">Needs review</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-xs text-slate-500 mt-2">On-track rows fade into the background. The reviewer's eye lands on the rows that need a decision.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ DEEP DIVE 3 — Conflict tooltip ============================================ -->
+<section class="border-b border-slate-200 bg-white">
+  <div class="max-w-5xl mx-auto px-8 py-20">
+    <div class="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-3">Deep dive 3</div>
+    <h2 class="text-3xl font-bold mb-3">Supervisory, not actionable.</h2>
+    <p class="text-slate-600 mb-10 max-w-3xl">
+      When the agent recommends an action that runs counter to the account's pacing direction (e.g. campaign-level increase on an over-pacing account), it flags the row with a ⚠. Hover reveals a tight, supervisory tooltip — for visibility, not action.
+    </p>
+
+    <div class="bg-slate-50 ring-1 ring-slate-200 rounded-xl p-12 flex items-center justify-center">
+      <div class="relative">
+        <!-- Mock row -->
+        <div class="bg-white ring-1 ring-slate-200 rounded-lg px-5 py-4 flex items-center gap-3 shadow-sm">
+          <span class="font-semibold text-slate-900">Performance Max — General Dentist</span>
+          <span class="text-amber-600 text-base cursor-help">⚠</span>
+          <span class="bg-sky-50 ring-1 ring-sky-200 text-sky-700 text-[11px] font-semibold px-2 py-0.5 rounded-full">budget-limited</span>
+        </div>
+        <!-- Tooltip -->
+        <div class="absolute left-1/2 -translate-x-1/2 -top-20 bg-slate-800 px-3 py-2 rounded-md shadow-lg whitespace-nowrap">
+          <div class="text-[12px] font-semibold text-white">Flagged: counter to account direction</div>
+          <div class="text-[11px] text-slate-300">For visibility — no action needed</div>
+          <!-- arrow -->
+          <div class="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-r-[6px] border-t-[6px] border-l-transparent border-r-transparent border-t-slate-800"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-6 text-sm text-slate-600 max-w-3xl">
+      <p class="mb-2"><span class="font-semibold text-slate-900">Why the wording matters.</span> Earlier drafts read "Conflicts with account direction" — which sounds like the reviewer needs to fix something. The agent has already weighed the trade-off and made the call; the reviewer just needs to know it happened.</p>
+      <p>The two-line tooltip — one line of identification, one of explicit reassurance — keeps the cognitive load low while removing the false-positive interpretation.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ DEEP DIVE 4 — Severity filter ============================================ -->
+<section class="border-b border-slate-200">
+  <div class="max-w-5xl mx-auto px-8 py-20">
+    <div class="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-3">Deep dive 4</div>
+    <h2 class="text-3xl font-bold mb-3">Filter to what matters.</h2>
+    <p class="text-slate-600 mb-10 max-w-3xl">
+      The G Ads Pacing tab now has a Severity multi-select. Default view shows everything; one click narrows to Critical + Investigate when the queue is large.
+    </p>
+
+    <div class="bg-white ring-1 ring-slate-200 rounded-xl p-6">
+      <div class="flex items-center gap-4 mb-4 pb-4 border-b border-slate-100">
+        <label class="text-sm text-slate-600">Practice:</label>
+        <button class="bg-white border border-slate-300 rounded-md px-3 py-1.5 text-sm flex items-center gap-2 min-w-[180px] justify-between">
+          <span>All Practices</span>
+          <span class="text-slate-400">▾</span>
+        </button>
+        <div class="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+          <button class="px-3 py-1.5 text-sm rounded-md bg-white text-slate-900 shadow-sm">Last 1 Day</button>
+          <button class="px-3 py-1.5 text-sm rounded-md text-slate-600">Last 3 Days</button>
+          <button class="px-3 py-1.5 text-sm rounded-md text-slate-600">Last 7 Days</button>
+        </div>
+        <label class="text-sm text-slate-600">Severity:</label>
+        <button class="bg-white border-2 border-indigo-500 rounded-md px-3 py-1.5 text-sm flex items-center gap-2 min-w-[180px] justify-between">
+          <span class="font-medium">2 selected</span>
+          <span class="text-slate-400">▴</span>
+        </button>
+      </div>
+      <!-- Mock dropdown -->
+      <div class="bg-white ring-1 ring-slate-200 rounded-md max-w-xs ml-auto" style="margin-top: -16px; transform: translateY(-12px); position: relative;">
+        <div class="px-3 py-2 border-b border-slate-100 bg-slate-50 flex justify-between text-xs">
+          <span class="text-slate-600">All Severities</span>
+          <span class="text-slate-500">Clear</span>
+        </div>
+        <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer bg-indigo-50">
+          <input type="checkbox" checked class="rounded text-indigo-600" />
+          <span class="text-indigo-900 font-medium">Critical</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer bg-indigo-50">
+          <input type="checkbox" checked class="rounded text-indigo-600" />
+          <span class="text-indigo-900 font-medium">Investigate</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+          <input type="checkbox" class="rounded" />
+          <span class="text-slate-700">Alert</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+          <input type="checkbox" class="rounded" />
+          <span class="text-slate-700">Underpace</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+          <input type="checkbox" class="rounded" />
+          <span class="text-slate-700">Auto</span>
+        </label>
+        <label class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50">
+          <input type="checkbox" class="rounded" />
+          <span class="text-slate-700">OK</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="mt-6 grid md:grid-cols-3 gap-5 text-sm">
+      <div>
+        <div class="font-semibold text-slate-900 mb-1">Multi-select</div>
+        <p class="text-slate-600">Pick any combination — e.g. just Critical + Investigate during morning triage.</p>
+      </div>
+      <div>
+        <div class="font-semibold text-slate-900 mb-1">Tab-scoped</div>
+        <p class="text-slate-600">Resets automatically when leaving the Pacing tab — no leftover state.</p>
+      </div>
+      <div>
+        <div class="font-semibold text-slate-900 mb-1">Carries to CSV export</div>
+        <p class="text-slate-600">Exporting a filtered view exports exactly what you see.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ THE PRINCIPLE ============================================ -->
+<section class="border-b border-slate-200 bg-slate-900 text-white">
+  <div class="max-w-5xl mx-auto px-8 py-20">
+    <div class="text-xs font-semibold text-indigo-300 uppercase tracking-wider mb-3">Design principle</div>
+    <h2 class="text-3xl font-bold mb-6">Every metric earns its screen space by changing a decision.</h2>
+    <p class="text-slate-300 leading-relaxed max-w-3xl mb-10">
+      We deliberately did not bolt on every available signal. Each new field appears only where it changes how the reviewer reads the row — and stays out of the way the rest of the time. The result: more signal, less noise.
+    </p>
+    <div class="grid md:grid-cols-2 gap-8">
+      <div>
+        <div class="text-sm font-semibold text-indigo-300 mb-3">Examples of conditional display</div>
+        <ul class="space-y-2 text-sm text-slate-300">
+          <li>• "% IS lost" only on budget-limited campaigns above 1%</li>
+          <li>• Util bar hidden during month-start grace (would mislead)</li>
+          <li>• Conflict ⚠ suppressed on "No change" rows</li>
+          <li>• Mixed-account chip only when classifications actually mix</li>
+          <li>• Feedback form hidden on on-track and grace accounts</li>
+        </ul>
+      </div>
+      <div>
+        <div class="text-sm font-semibold text-indigo-300 mb-3">What that means for the reviewer</div>
+        <ul class="space-y-2 text-sm text-slate-300">
+          <li>• Faster triage — eyes land on what changed</li>
+          <li>• Higher trust — the agent shows its work</li>
+          <li>• Fewer false alarms — supervisory framing on warnings</li>
+          <li>• Less context-switching — every "why" is in the row</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================ FOOTER ============================================ -->
+<section class="bg-slate-50">
+  <div class="max-w-5xl mx-auto px-8 py-12 text-center text-sm text-slate-500">
+    <p>Released May 1, 2026 · Smartwork Automation · Pacing review portal</p>
+  </div>
+</section>
+
+</body>
+</html>
