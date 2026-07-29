@@ -492,12 +492,17 @@ function parseBudgets(rows: string[][]): Map<string, BudgetConfigEntry> {
   const managedIdx = idx('managed');
   const updatedByIdx = idx('updated_by');
   const updatedAtIdx = idx('updated_at');
+  const activeIdx = idx('active');
   const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
 
   rows.slice(1).forEach((row) => {
     const googleAdsId = googleAdsIdx >= 0 ? (row[googleAdsIdx] || '').trim() : '';
     const campaignId = campaignIdIdx >= 0 ? (row[campaignIdIdx] || '').trim() : '';
     if (!googleAdsId || !campaignId) return;
+    // Soft-delete: tombstoned rows (active = FALSE) are skipped so removed campaigns
+    // never enter the config map. Fail open — a missing column or blank cell (pre-migration
+    // rows) is treated as active.
+    if (String(cell(row, activeIdx) ?? 'TRUE').toUpperCase() === 'FALSE') return;
 
     let entry = map.get(googleAdsId);
     if (!entry) {
@@ -789,7 +794,7 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       fetchSheet('Negative Keywords').catch(() => [] as string[][]),
       fetchSheet('G Ads Pacing', 'A:BH').catch(() => [] as string[][]),
       fetchSheet('KW Buildout Proposals').catch(() => [] as string[][]),
-      fetchSheet('Campaign Budgets').catch(() => [] as string[][]),
+      fetchSheet('Campaign Budgets', 'A:AZ').catch(() => [] as string[][]),
       fetchSheet('Campaign Budget Status').catch(() => [] as string[][]),
     ]);
 
