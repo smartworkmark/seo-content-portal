@@ -103,10 +103,10 @@ export const DISPLAY_STATUS_OPTIONS: DisplayStatus[] = [
   'Significantly Underpacing',
 ];
 
-// Selectable Status-filter values. 'Paused' is a resolver override (not a variance tier), so it
-// lives alongside the five tiers here rather than in DISPLAY_STATUS_OPTIONS.
-export type StatusFilter = DisplayStatus | 'Paused';
-export const STATUS_FILTER_OPTIONS: StatusFilter[] = [...DISPLAY_STATUS_OPTIONS, 'Paused'];
+// Historical pacing statuses are the five daily tiers only. Current-month pause events use
+// the dedicated Paused practices view and never enter the normal Status filter.
+export type StatusFilter = DisplayStatus;
+export const STATUS_FILTER_OPTIONS: StatusFilter[] = [...DISPLAY_STATUS_OPTIONS];
 
 // Case-insensitive match of a raw sheet value to a known tier. Returns null for blank/unknown
 // so the caller can fall back to the variance-derived tier.
@@ -135,23 +135,159 @@ export function isAccountPaused(record: Pick<GAdsPacingRecord, 'campaigns'>): bo
   return record.campaigns.length > 0 && record.campaigns.every((c) => c.paused);
 }
 
-// Single source of truth for the visible client status. Precedence:
-//   0. every campaign paused → 'Paused' (overrides everything — no pacing signal applies)
-//   1. month-start grace → null (renders as the neutral "New" pill)
-//   2. the sheet's display_status column (authoritative when present)
-//   3. fallback: tier derived from month-to-date variance %
+// Dedicated paused-view snapshots carry the pause event at account level because paused
+// campaigns can disappear from later pacing runs. Normal rows fall back to deriving the date
+// from their fully-paused campaign set.
+export function accountPausedDate(
+  record: Pick<GAdsPacingRecord, 'campaigns' | 'pausedDate'>,
+): string {
+  if (record.pausedDate) return record.pausedDate;
+  if (!isAccountPaused(record)) return '';
+
+  return record.campaigns.reduce((latest, campaign) => {
+    if (!campaign.pausedDate) return latest;
+    if (!latest) return campaign.pausedDate;
+
+    const campaignTime = new Date(campaign.pausedDate).getTime();
+    const latestTime = new Date(latest).getTime();
+    if (Number.isNaN(campaignTime)) return latest;
+    if (Number.isNaN(latestTime)) return campaign.pausedDate;
+    return campaignTime > latestTime ? campaign.pausedDate : latest;
+  }, '');
+}
+
+function calendarMonth(dateValue: string): { year: number; month: number } | null {
+  const trimmed = dateValue.trim();
+  const yearFirst = trimmed.match(/^(\d{4})-(\d{1,2})-\d{1,2}/);
+  if (yearFirst) {
+    return { year: Number(yearFirst[1]), month: Number(yearFirst[2]) - 1 };
+  }
+
+  const monthFirst = trimmed.match(/^(\d{1,2})\/\d{1,2}\/(\d{4})/);
+  if (monthFirst) {
+    return { year: Number(monthFirst[2]), month: Number(monthFirst[1]) - 1 };
+  }
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : { year: parsed.getFullYear(), month: parsed.getMonth() };
+}
+
+function calendarDateKey(dateValue: string): string | null {
+  const trimmed = dateValue.trim();
+  const yearFirst = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (yearFirst) {
+    return `${yearFirst[1]}-${yearFirst[2].padStart(2, '0')}-${yearFirst[3].padStart(2, '0')}`;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return [
+    parsed.getFullYear(),
+    String(parsed.getMonth() + 1).padStart(2, '0'),
+    String(parsed.getDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+// A pause is a dated event, not a current-state override. Only the historical row whose run date
+// matches an account pause event may display the Paused status.
+export function isPausedOnRunDate(
+  record: Pick<GAdsPacingRecord, 'runDate' | 'pauseDates'>,
+): boolean {
+  const runDate = calendarDateKey(record.runDate);
+  return runDate !== null
+    && (record.pauseDates ?? []).some((pausedDate) => calendarDateKey(pausedDate) === runDate);
+}
+
+interface CampaignPauseStatus {
+  campaignId: string;
+  googleAdsId: string;
+  paused: boolean;
+  pausedDate: string;
+}
+
+// Produce one display snapshot per Google Ads account with a campaign pause recorded during the
+// current calendar month. Campaign Budget Status is the membership source of truth: paused
+// campaigns often disappear from later pacing runs, so the latest run cannot reliably reconstruct
+// the month's pause events. Pacing records supply only the latest display details for each account.
+export function currentMonthPausedGAdsPacing(
+  records: GAdsPacingRecord[],
+  statuses: CampaignPauseStatus[],
+  now = new Date(),
+): GAdsPacingRecord[] {
+  const latestByAccount = new Map<string, GAdsPacingRecord>();
+  const accountByCampaign = new Map<string, string>();
+
+  records.forEach((record) => {
+    record.campaigns.forEach((campaign) => {
+      if (campaign.campaignId) accountByCampaign.set(campaign.campaignId, record.googleAdsId);
+    });
+
+    const existing = latestByAccount.get(record.googleAdsId);
+    if (!existing) {
+      latestByAccount.set(record.googleAdsId, record);
+      return;
+    }
+
+    const recordTime = new Date(record.runDate).getTime();
+    const existingTime = new Date(existing.runDate).getTime();
+    if (
+      (!Number.isNaN(recordTime) && Number.isNaN(existingTime))
+      || (!Number.isNaN(recordTime) && recordTime > existingTime)
+    ) {
+      latestByAccount.set(record.googleAdsId, record);
+    }
+  });
+
+  const pausedDateByAccount = new Map<string, string>();
+  statuses.forEach((status) => {
+    if (!status.paused || !status.pausedDate) return;
+    const pausedMonth = calendarMonth(status.pausedDate);
+    if (
+      pausedMonth?.year !== now.getFullYear()
+      || pausedMonth.month !== now.getMonth()
+    ) return;
+
+    const googleAdsId = status.googleAdsId || accountByCampaign.get(status.campaignId) || '';
+    if (!googleAdsId) return;
+
+    const existingDate = pausedDateByAccount.get(googleAdsId);
+    if (
+      !existingDate
+      || new Date(status.pausedDate).getTime() > new Date(existingDate).getTime()
+    ) {
+      pausedDateByAccount.set(googleAdsId, status.pausedDate);
+    }
+  });
+
+  return Array.from(pausedDateByAccount.entries()).flatMap(([googleAdsId, pausedDate]) => {
+    const latest = latestByAccount.get(googleAdsId);
+    return latest ? [{ ...latest, pausedDate }] : [];
+  });
+}
+
+// Single source of truth for a historical pacing row's client status. A matching pause event
+// overrides only that exact run date; all other rows retain their own daily status.
+// Precedence: matching pause date → Paused, month-start grace → null ("New"), then the row's
+// display_status column, then the variance-derived fallback.
 export function resolveDisplayStatus(
-  record: Pick<GAdsPacingRecord, 'campaigns' | 'displayStatus' | 'variancePercent'>,
+  record: Pick<
+    GAdsPacingRecord,
+    'campaigns' | 'displayStatus' | 'variancePercent' | 'runDate' | 'pauseDates'
+  >,
 ): DisplayStatus | 'Paused' | null {
-  if (isAccountPaused(record)) return 'Paused';
+  if (isPausedOnRunDate(record)) return 'Paused';
   if (shouldShowGraceBanner(record)) return null;
   return normalizeDisplayStatus(record.displayStatus) ?? displayStatusFromVariance(record.variancePercent);
 }
 
-// Resolve straight to the pill style, collapsing the Paused / New / tier branches so the
-// render sites don't each re-implement the mapping.
+// Resolve a historical row straight to its date-specific Paused/New/tier pill style.
 export function displayStatusPill(
-  record: Pick<GAdsPacingRecord, 'campaigns' | 'displayStatus' | 'variancePercent'>,
+  record: Pick<
+    GAdsPacingRecord,
+    'campaigns' | 'displayStatus' | 'variancePercent' | 'runDate' | 'pauseDates'
+  >,
 ): { label: string; pill: string; text: string } {
   const tier = resolveDisplayStatus(record);
   if (tier === 'Paused') return DISPLAY_STATUS_PAUSED_STYLE;
@@ -159,12 +295,15 @@ export function displayStatusPill(
   return DISPLAY_STATUS_STYLES[tier];
 }
 
-// Stable ordering for sorting the Status column. Grace/New and Paused sort last.
+// Stable ordering for sorting the historical Status column. Grace/New and Paused sort last.
 export function displayStatusRank(
-  record: Pick<GAdsPacingRecord, 'campaigns' | 'displayStatus' | 'variancePercent'>,
+  record: Pick<
+    GAdsPacingRecord,
+    'campaigns' | 'displayStatus' | 'variancePercent' | 'runDate' | 'pauseDates'
+  >,
 ): number {
   const tier = resolveDisplayStatus(record);
-  if (tier === 'Paused') return DISPLAY_STATUS_OPTIONS.length + 1; // Paused → after New
+  if (tier === 'Paused') return DISPLAY_STATUS_OPTIONS.length + 1;
   if (tier === null) return DISPLAY_STATUS_OPTIONS.length; // New → last
   return DISPLAY_STATUS_OPTIONS.indexOf(tier);
 }

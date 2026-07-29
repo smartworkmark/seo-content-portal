@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, KwBuildoutRecord, KwBuildoutApprovedKey, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { actionDotCounts, displayStatusPill, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, isAccountPaused, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
+import { accountPausedDate, actionDotCounts, DISPLAY_STATUS_PAUSED_STYLE, displayStatusPill, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, isPausedOnRunDate, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
 import { confidenceMix, reviewCounts, totalConversions } from '@/lib/kw-buildout';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
 import { KwBuildoutDetailPanel } from './KwBuildoutDetailPanel';
@@ -24,6 +24,7 @@ interface DataTableProps {
   gmbPostErrors?: GmbPostError[];
   negKeywordReviews?: NegKeywordReview[];
   gAdsPacing?: GAdsPacingRecord[];
+  isPausedView?: boolean;
   kwBuildout?: KwBuildoutRecord[];
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
@@ -207,6 +208,7 @@ export function DataTable({
   gmbPostErrors = [],
   negKeywordReviews = [],
   gAdsPacing = [],
+  isPausedView = false,
   kwBuildout = [],
   featureFilters = {},
   onFeatureToggle,
@@ -229,13 +231,13 @@ export function DataTable({
     setExpandedKwRow(null);
     // G Ads Pacing's date field is `runDate`, not the shared `date` default — set it explicitly so newest stays on top.
     if (contentType === 'g-ads-pacing') {
-      setSort({ column: 'runDate', direction: 'desc' });
+      setSort({ column: isPausedView ? 'pausedDate' : 'runDate', direction: 'desc' });
     }
     // Keyword Buildout sorts by `loggedAt`, not the shared `date` default.
     if (contentType === 'kw-buildout') {
       setSort({ column: 'loggedAt', direction: 'desc' });
     }
-  }, [contentType, isErrorMode]);
+  }, [contentType, isErrorMode, isPausedView]);
 
   // Reset page when data length changes (e.g. feature filters applied that reduce total pages)
   useEffect(() => {
@@ -836,7 +838,17 @@ export function DataTable({
           const diff = displayStatusRank(a) - displayStatusRank(b);
           return sort.direction === 'asc' ? diff : -diff;
         })
-      : sortData(gAdsPacing, sort.column as keyof GAdsPacingRecord, sort.direction);
+      : sort.column === 'pausedDate'
+        ? [...gAdsPacing].sort((a, b) => {
+            const aDate = accountPausedDate(a);
+            const bDate = accountPausedDate(b);
+            if (!aDate && !bDate) return 0;
+            if (!aDate) return 1;
+            if (!bDate) return -1;
+            const diff = new Date(aDate).getTime() - new Date(bDate).getTime();
+            return sort.direction === 'asc' ? diff : -diff;
+          })
+        : sortData(gAdsPacing, sort.column as keyof GAdsPacingRecord, sort.direction);
     const totalPages = Math.ceil(sortedData.length / ITEMS_PER_PAGE);
     const paginatedData = sortedData.slice(
       (currentPage - 1) * ITEMS_PER_PAGE,
@@ -852,8 +864,12 @@ export function DataTable({
                 <tr className="border-b border-gray-200 bg-gray-50">
                   <th className="w-8 pl-3 py-3" />
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
-                    <button onClick={() => handleSort('runDate')} className="flex items-center gap-1 hover:text-gray-900">
-                      Date <SortIcon column="runDate" />
+                    <button
+                      onClick={() => handleSort(isPausedView ? 'pausedDate' : 'runDate')}
+                      className="flex items-center gap-1 hover:text-gray-900"
+                    >
+                      {isPausedView ? 'Date Paused' : 'Date'}{' '}
+                      <SortIcon column={isPausedView ? 'pausedDate' : 'runDate'} />
                     </button>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -900,19 +916,23 @@ export function DataTable({
                 {paginatedData.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="px-4 py-16 text-center text-sm text-gray-500">
-                      No pacing records found for the selected filters.
+                      {isPausedView
+                        ? 'No paused practices found.'
+                        : 'No pacing records found for the selected filters.'}
                     </td>
                   </tr>
                 ) : (
                   paginatedData.map((record) => {
                     const isExpanded = expandedGAdsRow === record.id;
-                    const status = displayStatusPill(record);
+                    const status = isPausedView
+                      ? DISPLAY_STATUS_PAUSED_STYLE
+                      : displayStatusPill(record);
+                    const pausedDate = isPausedView ? accountPausedDate(record) : '';
                     const dots = actionDotCounts(record.campaigns, record.approvalStatus);
                     // An on-track account can still get a day-of-week budget move. Only show the
                     // "On track" pill (and dim the row) when nothing actually moved the live budget.
-                    // A fully-paused account is likewise inert, so dim it too.
                     const onTrack = record.accountOnTrack && !hasAppliedChange(record);
-                    const dim = (onTrack || isAccountPaused(record)) && !isExpanded;
+                    const dim = (isPausedView || isPausedOnRunDate(record) || onTrack) && !isExpanded;
                     return (
                       <Fragment key={record.id}>
                         <tr
@@ -932,7 +952,9 @@ export function DataTable({
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap font-mono">
-                            {fmtCompactDate(record.runDate)}
+                            {isPausedView
+                              ? (pausedDate ? fmtCompactDate(pausedDate) : '—')
+                              : fmtCompactDate(record.runDate)}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <span className={`${status.pill} ${status.text}`} style={{
@@ -997,7 +1019,13 @@ export function DataTable({
                           </td>
                         </tr>
                         {isExpanded && onSubmitGAdsFeedback && onSubmitBudget && (
-                          <GAdsPacingDetailPanel record={record} colSpan={10} onSubmit={onSubmitGAdsFeedback} onSubmitBudget={onSubmitBudget} />
+                          <GAdsPacingDetailPanel
+                            record={record}
+                            colSpan={10}
+                            isPausedView={isPausedView}
+                            onSubmit={onSubmitGAdsFeedback}
+                            onSubmitBudget={onSubmitBudget}
+                          />
                         )}
                       </Fragment>
                     );

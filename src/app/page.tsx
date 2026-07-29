@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview } from '@/types';
-import { needsApproval, resolveDisplayStatus, type StatusFilter } from '@/lib/g-ads-pacing';
+import { accountPausedDate, needsApproval, resolveDisplayStatus, type StatusFilter } from '@/lib/g-ads-pacing';
 import { flagsList } from '@/lib/kw-buildout';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
@@ -45,6 +45,7 @@ export default function Dashboard() {
   const [selectedStatuses, setSelectedStatuses] = useState<StatusFilter[]>([]);
   const [selectedModes, setSelectedModes] = useState<Array<'account' | 'campaign'>>([]);
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
+  const [isPausedView, setIsPausedView] = useState(false);
   const [selectedConfidences, setSelectedConfidences] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
@@ -69,6 +70,7 @@ export default function Dashboard() {
     filteredReplies,
     filteredNegKeywords,
     filteredGAdsPacing,
+    filteredPausedGAdsPacing,
     filteredKwBuildout,
     filterCounts,
     filteredBlogErrors,
@@ -128,10 +130,13 @@ export default function Dashboard() {
       // (severity is intentionally omitted — it's an internal signal now).
       const pacingForExport = reviewFilteredGAdsPacing.map((r) => ({
         ...r,
-        status: resolveDisplayStatus(r) ?? 'New',
+        status: isPausedView ? 'Paused' : (resolveDisplayStatus(r) ?? 'New'),
+        pausedDate: accountPausedDate(r),
       }));
       exportToCSV(pacingForExport, 'g-ads-pacing', [
-        { key: 'runDate', label: 'Run Date' },
+        isPausedView
+          ? { key: 'pausedDate', label: 'Date Paused' }
+          : { key: 'runDate', label: 'Run Date' },
         { key: 'practiceName', label: 'Practice' },
         { key: 'googleAdsId', label: 'Google Ads ID' },
         { key: 'companyId', label: 'HSID' },
@@ -202,24 +207,27 @@ export default function Dashboard() {
   // Status filter (client-facing pacing tier) — applied as a final pass on top of practice+date
   // filtered pacing records. Empty selection = show all. Every row resolves to a tier via the
   // resolver (grace rows resolve to null "New" and drop out when a specific tier is selected).
-  const statusFilteredGAdsPacing = selectedStatuses.length === 0
-    ? filteredGAdsPacing
-    : filteredGAdsPacing.filter((r) => {
+  // Paused view bypasses this filter without clearing the user's normal-view selection.
+  const baseGAdsPacing = isPausedView ? filteredPausedGAdsPacing : filteredGAdsPacing;
+
+  const statusFilteredGAdsPacing = isPausedView || selectedStatuses.length === 0
+    ? baseGAdsPacing
+    : baseGAdsPacing.filter((r) => {
         const tier = resolveDisplayStatus(r);
-        // null ("New") isn't a selectable option, so those rows drop out when a specific status
-        // is chosen. 'Paused' IS selectable and matches here.
-        return tier !== null && selectedStatuses.includes(tier);
+        // null ("New") and date-specific Paused rows aren't selectable normal tiers, so they
+        // drop out when a pacing tier is chosen. Pause events use the dedicated view.
+        return tier !== null && tier !== 'Paused' && selectedStatuses.includes(tier);
       });
 
   // Mode filter — composed on top of the status filter. Empty selection = show all.
-  const modeFilteredGAdsPacing = selectedModes.length === 0
+  const modeFilteredGAdsPacing = isPausedView || selectedModes.length === 0
     ? statusFilteredGAdsPacing
     : statusFilteredGAdsPacing.filter((r) => selectedModes.includes(r.effectiveMode));
 
   // Feedback filter — "Needs review" narrows to accounts awaiting feedback (same definition as
   // the table's Feedback column). This is the most-derived pacing variable; it feeds both the
   // table and CSV export.
-  const reviewFilteredGAdsPacing = !needsReviewOnly
+  const reviewFilteredGAdsPacing = isPausedView || !needsReviewOnly
     ? modeFilteredGAdsPacing
     : modeFilteredGAdsPacing.filter((r) => r.approvalStatus === '' && needsApproval(r));
 
@@ -254,6 +262,7 @@ export default function Dashboard() {
       setSelectedStatuses([]);
       setSelectedModes([]);
       setNeedsReviewOnly(false);
+      setIsPausedView(false);
     }
     if (tab !== 'kw-buildout') setSelectedConfidences([]);
   };
@@ -430,6 +439,9 @@ export default function Dashboard() {
               onModesChange={setSelectedModes}
               needsReviewOnly={needsReviewOnly}
               onNeedsReviewChange={setNeedsReviewOnly}
+              isPausedView={isPausedView}
+              onPausedViewChange={setIsPausedView}
+              pausedCount={filteredPausedGAdsPacing.length}
               selectedConfidences={selectedConfidences}
               onConfidencesChange={setSelectedConfidences}
             />
@@ -469,6 +481,7 @@ export default function Dashboard() {
             replies={filteredReplies}
             negKeywordReviews={filteredNegKeywords}
             gAdsPacing={reviewFilteredGAdsPacing}
+            isPausedView={isPausedView}
             kwBuildout={confidenceFilteredKwBuildout}
             isLoading={isLoading}
             isErrorMode={showErrors}

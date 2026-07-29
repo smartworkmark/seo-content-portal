@@ -1,7 +1,7 @@
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, Severity, ApprovalStatus, RecommendationType, Classification, SkipReason, KwBuildoutRecord, KwBuildoutKeyword, Confidence } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
-import { isValidUrl } from '@/lib/utils';
-import { needsApproval } from './g-ads-pacing';
+import { filterGAdsPacing, isValidUrl } from '@/lib/utils';
+import { currentMonthPausedGAdsPacing, needsApproval } from './g-ads-pacing';
 
 // Check if Google Sheets credentials are configured
 function isConfigured(): boolean {
@@ -395,6 +395,7 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       effectiveMode: null,
       statusReason: '',
       paused: false,
+      pausedDate: '',
     };
 
     const existing = groups.get(key);
@@ -427,9 +428,10 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       if (!existing.dowFlags) existing.dowFlags = cell(row, dowFlagsIdx) || '';
     } else {
       groups.set(key, {
-        id: key,
-        runDate,
-        runId: runIdIdx >= 0 ? (row[runIdIdx] || '') : '',
+      id: key,
+      runDate,
+      pauseDates: [],
+      runId: runIdIdx >= 0 ? (row[runIdIdx] || '') : '',
         practiceName: practiceIdx >= 0 ? (row[practiceIdx] || '') : '',
         googleAdsId,
         companyId: hsIdIdx >= 0 ? (row[hsIdIdx] || '') : '',
@@ -471,11 +473,14 @@ interface BudgetConfigEntry {
 }
 
 interface BudgetStatusEntry {
+  campaignId: string;
+  googleAdsId: string;
   sharedBudget: boolean;
   effectiveMode: 'account' | 'campaign' | null;
   statusReason: string;
   lastEvaluated: string;
   paused: boolean;
+  pausedDate: string;
 }
 
 // Frontend-owned "Campaign Budgets" sheet: one row per campaign, account fields repeated.
@@ -533,11 +538,13 @@ function parseBudgetStatus(rows: string[][]): Map<string, BudgetStatusEntry> {
   const headers = rows[0].map((h) => h.toLowerCase().trim());
   const idx = (name: string) => headers.findIndex((h) => h === name);
   const campaignIdIdx = idx('campaign_id');
+  const googleAdsIdx = idx('google_ads_id');
   const sharedIdx = idx('shared_budget');
   const modeIdx = idx('effective_mode');
   const reasonIdx = idx('status_reason');
   const evaluatedIdx = idx('last_evaluated');
   const pausedIdx = idx('paused_by_agent');
+  const pausedDateIdx = idx('paused_date');
   const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
 
   rows.slice(1).forEach((row) => {
@@ -546,11 +553,14 @@ function parseBudgetStatus(rows: string[][]): Map<string, BudgetStatusEntry> {
     const rawMode = (cell(row, modeIdx) || '').trim().toLowerCase();
     const effectiveMode = rawMode === 'campaign' ? 'campaign' : rawMode === 'account' ? 'account' : null;
     map.set(campaignId, {
+      campaignId,
+      googleAdsId: cell(row, googleAdsIdx) || '',
       sharedBudget: toBool(cell(row, sharedIdx)),
       effectiveMode,
       statusReason: cell(row, reasonIdx) || '',
       lastEvaluated: cell(row, evaluatedIdx) || '',
       paused: toBool(cell(row, pausedIdx)),
+      pausedDate: cell(row, pausedDateIdx) || '',
     });
   });
 
@@ -564,8 +574,20 @@ function applyBudgetConfigs(
   configMap: Map<string, BudgetConfigEntry>,
   statusMap: Map<string, BudgetStatusEntry>,
 ): void {
+  const pauseDatesByAccount = new Map<string, Set<string>>();
+  statusMap.forEach((status) => {
+    if (!status.paused || !status.pausedDate || !status.googleAdsId) return;
+    let dates = pauseDatesByAccount.get(status.googleAdsId);
+    if (!dates) {
+      dates = new Set<string>();
+      pauseDatesByAccount.set(status.googleAdsId, dates);
+    }
+    dates.add(status.pausedDate);
+  });
+
   records.forEach((record) => {
     const config = configMap.get(record.googleAdsId);
+    record.pauseDates = Array.from(pauseDatesByAccount.get(record.googleAdsId) ?? []);
 
     record.budgetConfig = config
       ? {
@@ -586,6 +608,7 @@ function applyBudgetConfigs(
       c.effectiveMode = status?.effectiveMode ?? null;
       c.statusReason = status?.statusReason ?? '';
       c.paused = status?.paused ?? false;
+      c.pausedDate = status?.pausedDate ?? '';
     });
 
     // Account rollup: campaign-level only when managed AND every eligible campaign is
@@ -803,7 +826,8 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
     const replies = parseReplies(repliesData);
     const negKeywordReviews = parseNegKeywordReviews(negKeywordsData);
     const gAdsPacing = parseGAdsPacing(gAdsPacingData);
-    applyBudgetConfigs(gAdsPacing, parseBudgets(budgetsData), parseBudgetStatus(budgetStatusData));
+    const budgetStatuses = parseBudgetStatus(budgetStatusData);
+    applyBudgetConfigs(gAdsPacing, parseBudgets(budgetsData), budgetStatuses);
     const kwBuildout = parseKwBuildout(kwBuildoutData);
 
     // Sort by date descending
@@ -815,6 +839,15 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
     kwBuildout.sort((a, b) => new Date(b.loggedAt).getTime() - new Date(a.loggedAt).getTime());
     blogErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     gmbPostErrors.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    // The normal pacing UI only supports 1/3/7-day ranges. Keep that browser payload bounded
+    // to seven days, and send a separate one-row-per-account snapshot for pauses whose actual
+    // pause event occurred during the current calendar month.
+    const recentGAdsPacing = filterGAdsPacing(gAdsPacing, [], '7d');
+    const pausedGAdsPacing = currentMonthPausedGAdsPacing(
+      gAdsPacing,
+      Array.from(budgetStatuses.values()),
+    );
 
     // Extract unique practices and accounts (include practices from errors, neg keywords, and pacing too)
     const practices = [...new Set([
@@ -834,7 +867,8 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       gmbPosts,
       replies,
       negKeywordReviews,
-      gAdsPacing,
+      gAdsPacing: recentGAdsPacing,
+      pausedGAdsPacing,
       kwBuildout,
       summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing, kwBuildout),
       practices,

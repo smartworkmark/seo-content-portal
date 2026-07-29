@@ -2,6 +2,74 @@
 
 ---
 
+## 2026-07-29 — Paused campaigns appear to receive budget increases
+
+### Symptoms
+The pacing detail panel showed positive budget changes on campaigns labeled **Paused** or **Approved**. Examples in the July 29 data included East Vancouver ($18 → $29), even though the workflow action was `PAUSE_CAMPAIGN`.
+
+### Root Cause
+The workflow and portal attach different meanings to the same row:
+
+1. In the n8n workflow, `PAUSE_CAMPAIGN` is rebuilt into `actions.pauseList` and routed to `campaigns:mutate` with only `updateMask: status`. It is not placed in `actions.autoApply` and does not call `campaignBudgets:mutate`.
+2. The pause row still logs `proposed_daily_budget` and a de-normalized `final_daily_budget` for audit purposes. Neither is a pause-action budget target.
+3. In `GAdsPacingDetailPanel`, `pending` is defined as `view.mode === 'approval' || view.mode === 'pause'` regardless of the actual approval status. Every pause row therefore displays `ifApprovedTarget = proposedDaily` and its delta as though approving the pause would also change the budget. This continues even after `approvalStatus === 'Approved'`.
+
+### Fix
+Treat pause actions as status-only in the portal. A `PAUSE_CAMPAIGN` row should display no Applied/Proposed budget and no Change (`—`), regardless of approval state. Reserve `ifApprovedTarget` for `BUDGET_INCREASE_APPROVAL` and `BUDGET_DECREASE_APPROVAL`; never use it for pause rows.
+
+### Rule to remember
+**A pause approval changes campaign status, not campaign budget.** Logged pacing proposals on a pause row are audit context and must not be rendered as applied or if-approved money movement.
+
+---
+
+## 2026-07-29 — Current pause flags make historical pacing rows look paused
+
+### Symptoms
+The backend status export contained 15 paused campaign rows across 7 Google Ads accounts, while a live-portal export filtered to **Paused / Last 7 Days** contained 28 rows across only 6 accounts. Individual accounts appeared once on several run dates, including dates before their recorded `paused_date`.
+
+### Root Cause
+`applyBudgetConfigs()` joins the current `Campaign Budget Status.paused_by_agent` value onto every historical `G Ads Pacing` record containing that campaign ID. `resolveDisplayStatus()` then gives the derived Paused override precedence, and the date filter independently filters by the pacing record's `runDate`. The result is a projection of today's pause state backward across multiple daily snapshots—not a pause-event history and not a campaign count.
+
+### Fix
+Do not use the normal Status/Last-7-Days result to count pause events. The dedicated paused-practices view reads `google_ads_id + paused_date` from Campaign Budget Status, filters pause events to the current calendar month, and deduplicates by account. Paused was removed from the normal Status dropdown. For normal history, join the account's distinct event dates as `pauseDates`; `resolveDisplayStatus()` and row dimming apply Paused only when `record.runDate` exactly matches one of those dates. Earlier and later rows retain their own daily `display_status`/variance tier.
+
+### Rule to remember
+**Current-state joins and historical snapshots answer different questions.** Never interpret repeated account-by-day rows carrying a current status as distinct events, campaigns, or practices.
+
+---
+
+## 2026-07-29 — Monthly paused-practice view drops accounts from older pacing snapshots
+
+### Symptoms
+`Campaign Budget Status` contained 15 paused campaigns across 7 Google Ads accounts in the current month, but the portal showed only 6 paused practices. The missing account had two paused campaigns in the status sheet, yet its latest pacing run contained only a different active campaign.
+
+### Root Cause
+The paused view reconstructed account membership from the latest `G Ads Pacing` record and required every campaign in that record to be paused. Paused campaigns can disappear from later pacing runs, so the latest snapshot is not a complete history of pause events.
+
+### Fix
+Use `Campaign Budget Status.google_ads_id`, `paused_by_agent`, and `paused_date` as the paused-view membership source. Filter those events to the current calendar month, deduplicate by `google_ads_id`, and use the latest pacing record only for display details. Keep the normal pacing payload bounded to seven days.
+
+### Rule to remember
+**Event views must be built from the event/status source, not reconstructed from a changing daily snapshot.** A missing campaign in a later pacing run does not erase its earlier pause event.
+
+---
+
+## 2026-07-29 — Paused status exists, but the portal drops the pause date
+
+### Symptoms
+The Google Ads pacing portal could identify a fully paused account through `paused_by_agent`, but it could not show when the account became paused. Reusing `runDate` would have shown the pacing snapshot date rather than the actual pause event.
+
+### Root Cause
+The n8n workflow already writes `paused_date` to the backend-owned **Campaign Budget Status** sheet, but `parseBudgetStatus()` only parsed `paused_by_agent`. The join therefore discarded the date before the data reached the UI.
+
+### Fix
+Parse and join `paused_date` onto every campaign. For a fully paused account, derive **Date Paused** as the latest campaign pause date—the date the final campaign became paused. Keep the normal browser payload bounded to seven days and send a separate, deduplicated current-month paused snapshot instead of exposing all pacing history to the client. The month boundary must be applied to **Date Paused**, not to the pacing run date.
+
+### Rule to remember
+**Pause state and pause timing are separate fields.** Use `paused_by_agent` to decide whether a campaign is paused, use `paused_date` for timing, and derive an account’s pause date from the latest paused campaign. Never substitute the pacing `runDate` for the pause event date.
+
+---
+
 ## 2026-07-08 — "NEXT_PUBLIC_… is not configured" in production (env var missing from Vercel)
 
 ### Symptoms

@@ -1,5 +1,5 @@
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, RecommendationType, Severity, Classification, SkipReason } from '@/types';
-import { displayStatusFromVariance } from '@/lib/g-ads-pacing';
+import { currentMonthPausedGAdsPacing, displayStatusFromVariance } from '@/lib/g-ads-pacing';
 
 // Sample practice names
 const practices = [
@@ -441,6 +441,7 @@ function buildCampaign(
     effectiveMode: null,
     statusReason: '',
     paused: false,
+    pausedDate: '',
   };
 }
 
@@ -559,14 +560,19 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
     if (scenario !== 'grace' && i % 6 === 4) {
       campaigns.forEach((c) => {
         c.paused = true;
+        c.pausedDate = runDate;
       });
     } else if (i % 6 === 1 && campaigns.length > 1) {
       campaigns[0].paused = true;
+      campaigns[0].pausedDate = runDate;
     }
 
     return {
       id: `${runDate}|${googleAdsId}`,
       runDate,
+      pauseDates: campaigns
+        .filter((campaign) => campaign.paused && campaign.pausedDate)
+        .map((campaign) => campaign.pausedDate),
       runId: `mock-run-${i}`,
       practiceName: practice,
       googleAdsId,
@@ -602,6 +608,14 @@ export function generateMockData(): ContentResponse {
   const replies = generateReplies(180);
   const negKeywordReviews = generateNegKeywordReviews(400);
   const gAdsPacing = generateGAdsPacing(40);
+  const pauseStatuses = gAdsPacing.flatMap((record) =>
+    record.campaigns.map((campaign) => ({
+      campaignId: campaign.campaignId,
+      googleAdsId: record.googleAdsId,
+      paused: campaign.paused,
+      pausedDate: campaign.pausedDate,
+    })),
+  );
   const blogErrors = generateBlogErrors(15);
   const gmbPostErrors = generateGmbPostErrors(25);
 
@@ -611,6 +625,7 @@ export function generateMockData(): ContentResponse {
     replies,
     negKeywordReviews,
     gAdsPacing,
+    pausedGAdsPacing: currentMonthPausedGAdsPacing(gAdsPacing, pauseStatuses),
     kwBuildout: [],
     summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing),
     practices: [...new Set([

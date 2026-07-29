@@ -29,6 +29,9 @@ interface FiltersProps {
   onModesChange?: (modes: Array<'account' | 'campaign'>) => void;
   needsReviewOnly?: boolean;
   onNeedsReviewChange?: (v: boolean) => void;
+  isPausedView?: boolean;
+  onPausedViewChange?: (v: boolean) => void;
+  pausedCount?: number;
   selectedConfidences?: string[];
   onConfidencesChange?: (confidences: string[]) => void;
 }
@@ -61,6 +64,9 @@ export function Filters({
   onModesChange,
   needsReviewOnly = false,
   onNeedsReviewChange,
+  isPausedView = false,
+  onPausedViewChange,
+  pausedCount = 0,
   selectedConfidences = [],
   onConfidencesChange,
 }: FiltersProps) {
@@ -116,28 +122,56 @@ export function Filters({
             />
           </div>
 
-          {/* Date Range Filter */}
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            {dateRangeOptions.map((option) => (
+          {/* Date range + dedicated paused-practices view */}
+          <div className="flex items-center gap-2">
+            {contentType === 'g-ads-pacing' && isPausedView ? (
+              <div className="flex items-center rounded-lg bg-gray-100 p-1">
+                <span className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-900 shadow-sm">
+                  This Month
+                </span>
+              </div>
+            ) : (
+              <fieldset className="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
+                {dateRangeOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => onDateRangeChange(option.value)}
+                    className={`
+                      px-3 py-1.5 text-sm rounded-md transition-colors
+                      ${selectedDateRange === option.value
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-600 hover:bg-indigo-50 hover:text-indigo-900'
+                      }
+                    `}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </fieldset>
+            )}
+
+            {contentType === 'g-ads-pacing' && onPausedViewChange && (
               <button
-                key={option.value}
-                onClick={() => onDateRangeChange(option.value)}
-                className={`
-                  px-3 py-1.5 text-sm rounded-md transition-colors
-                  ${selectedDateRange === option.value
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:bg-indigo-50 hover:text-indigo-900'
-                  }
-                `}
+                type="button"
+                aria-pressed={isPausedView}
+                onClick={() => onPausedViewChange(!isPausedView)}
+                className={`px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
+                  isPausedView
+                    ? 'bg-slate-700 text-white shadow-sm'
+                    : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50'
+                }`}
               >
-                {option.label}
+                Paused practices ({pausedCount})
               </button>
-            ))}
+            )}
           </div>
 
           {/* Status Filter (client-facing pacing tier) — G Ads Pacing tab only */}
           {contentType === 'g-ads-pacing' && onStatusesChange && (
-            <div className="flex items-center gap-2">
+            <fieldset
+              disabled={isPausedView}
+              className={`flex items-center gap-2 transition-opacity ${isPausedView ? 'opacity-45' : ''}`}
+            >
               <label className="text-sm text-gray-600 whitespace-nowrap">Status:</label>
               <MultiSelectDropdown
                 label="Status"
@@ -146,12 +180,15 @@ export function Filters({
                 selected={selectedStatuses}
                 onChange={(s) => onStatusesChange(s as StatusFilter[])}
               />
-            </div>
+            </fieldset>
           )}
 
           {/* Mode Filter — G Ads Pacing tab only */}
           {contentType === 'g-ads-pacing' && onModesChange && (
-            <div className="flex items-center gap-2">
+            <fieldset
+              disabled={isPausedView}
+              className={`flex items-center gap-2 transition-opacity ${isPausedView ? 'opacity-45' : ''}`}
+            >
               <label className="text-sm text-gray-600 whitespace-nowrap">Mode:</label>
               <MultiSelectDropdown
                 label="Mode"
@@ -160,12 +197,15 @@ export function Filters({
                 selected={selectedModes.map(modeValueToLabel)}
                 onChange={(labels) => onModesChange(labels.map(modeLabelToValue))}
               />
-            </div>
+            </fieldset>
           )}
 
           {/* Feedback Filter (All / Needs review) — G Ads Pacing tab only */}
           {contentType === 'g-ads-pacing' && onNeedsReviewChange && (
-            <div className="flex items-center gap-2">
+            <fieldset
+              disabled={isPausedView}
+              className={`flex items-center gap-2 transition-opacity ${isPausedView ? 'opacity-45' : ''}`}
+            >
               <label className="text-sm text-gray-600 whitespace-nowrap">Feedback:</label>
               <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                 {([
@@ -187,7 +227,7 @@ export function Filters({
                   </button>
                 ))}
               </div>
-            </div>
+            </fieldset>
           )}
 
           {/* Confidence Filter — Keyword Buildout tab only */}

@@ -13,6 +13,7 @@ import {
 } from '@/lib/budget-allocation';
 import {
   DOW_FLAG_LABELS,
+  DISPLAY_STATUS_PAUSED_STYLE,
   RECOMMENDATION_LABELS,
   SKIP_REASON_LABELS,
   appliedStatusLabel,
@@ -40,6 +41,7 @@ import {
 interface GAdsPacingDetailPanelProps {
   record: GAdsPacingRecord;
   colSpan: number;
+  isPausedView?: boolean;
   onSubmit: (record: GAdsPacingRecord, payload: GAdsPacingFeedbackPayload) => Promise<void>;
   onSubmitBudget: (record: GAdsPacingRecord, payload: BudgetAllocationPayload) => Promise<void>;
 }
@@ -486,7 +488,13 @@ function BudgetAllocationCard({
   );
 }
 
-export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudget }: GAdsPacingDetailPanelProps) {
+export function GAdsPacingDetailPanel({
+  record,
+  colSpan,
+  isPausedView = false,
+  onSubmit,
+  onSubmitBudget,
+}: GAdsPacingDetailPanelProps) {
   const [decision, setDecision] = useState<ApprovalStatus>(record.approvalStatus);
   const [reviewedBy, setReviewedBy] = useState(record.reviewedBy);
   const [notes, setNotes] = useState(record.notes);
@@ -525,9 +533,9 @@ export function GAdsPacingDetailPanel({ record, colSpan, onSubmit, onSubmitBudge
   // Hide the feedback form when there's nothing actionable to approve.
   const showFeedbackForm = !showGrace && !record.accountOnTrack && needsApproval(record);
 
-  // Client-facing pacing tier (account-level; campaigns inherit it). Fully-paused → "Paused",
-  // month-start → "New", else the variance/column tier.
-  const status = displayStatusPill(record);
+  // Historical rows retain their daily pacing tier. The dedicated pause-event view forces the
+  // neutral Paused pill without projecting today's pause state onto normal historical rows.
+  const status = isPausedView ? DISPLAY_STATUS_PAUSED_STYLE : displayStatusPill(record);
 
   return (
     <tr>
