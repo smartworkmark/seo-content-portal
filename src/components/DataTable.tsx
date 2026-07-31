@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, KwBuildoutRecord, KwBuildoutApprovedKey, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { accountPausedDate, actionDotCounts, DISPLAY_STATUS_PAUSED_STYLE, displayStatusPill, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, isPausedOnRunDate, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
+import { accountPausedDate, actionDotCounts, allCampaignsPaused, DISPLAY_STATUS_PAUSED_STYLE, displayStatusPill, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, isCampaignEnabled, isPausedOnRunDate, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
 import { confidenceMix, reviewCounts, totalConversions } from '@/lib/kw-buildout';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
 import { KwBuildoutDetailPanel } from './KwBuildoutDetailPanel';
@@ -928,11 +928,14 @@ export function DataTable({
                       ? DISPLAY_STATUS_PAUSED_STYLE
                       : displayStatusPill(record);
                     const pausedDate = isPausedView ? accountPausedDate(record) : '';
-                    const dots = actionDotCounts(record.campaigns, record.approvalStatus);
+                    // Only ENABLED campaigns can surface an action — a hidden (PAUSED) campaign
+                    // must not produce a stale dot.
+                    const dots = actionDotCounts(record.campaigns.filter(isCampaignEnabled), record.approvalStatus);
                     // An on-track account can still get a day-of-week budget move. Only show the
                     // "On track" pill (and dim the row) when nothing actually moved the live budget.
                     const onTrack = record.accountOnTrack && !hasAppliedChange(record);
-                    const dim = (isPausedView || isPausedOnRunDate(record) || onTrack) && !isExpanded;
+                    // A fully cap-paused account is inert, like the existing paused/on-track states.
+                    const dim = (isPausedView || isPausedOnRunDate(record) || allCampaignsPaused(record) || onTrack) && !isExpanded;
                     return (
                       <Fragment key={record.id}>
                         <tr

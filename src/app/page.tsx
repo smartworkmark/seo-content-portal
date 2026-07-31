@@ -214,9 +214,13 @@ export default function Dashboard() {
     ? baseGAdsPacing
     : baseGAdsPacing.filter((r) => {
         const tier = resolveDisplayStatus(r);
-        // null ("New") and date-specific Paused rows aren't selectable normal tiers, so they
-        // drop out when a pacing tier is chosen. Pause events use the dedicated view.
-        return tier !== null && tier !== 'Paused' && selectedStatuses.includes(tier);
+        // null ("New"), date-specific Paused, and cap-paused rows aren't selectable normal
+        // tiers, so they drop out when a pacing tier is chosen. Pause events use the
+        // dedicated view. (The variance tiers are the only members of selectedStatuses, so
+        // the includes() below is what actually excludes the paused/new variants — the
+        // explicit guards keep the type narrowed for includes().)
+        return tier !== null && tier !== 'Paused' && tier !== 'Paused (cap reached)'
+          && selectedStatuses.includes(tier);
       });
 
   // Mode filter — composed on top of the status filter. Empty selection = show all.

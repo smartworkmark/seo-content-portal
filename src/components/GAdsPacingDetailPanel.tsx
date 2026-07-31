@@ -16,8 +16,10 @@ import {
   DISPLAY_STATUS_PAUSED_STYLE,
   RECOMMENDATION_LABELS,
   SKIP_REASON_LABELS,
+  allCampaignsPaused,
   appliedStatusLabel,
   displayStatusPill,
+  isCampaignEnabled,
   budgetLimitedCount,
   campaignBudgetView,
   changeTone,
@@ -526,10 +528,16 @@ export function GAdsPacingDetailPanel({
   const showDow = shouldShowDowBanner(record);
   const dowMult = record.dowMultiplier ?? 1;
   const dowFlags = dowFlagsList(record.dowFlags);
-  const mix = budgetLimitedCount(record);
+  // Only ENABLED campaigns are shown. PAUSED campaigns stay in the data (their spend still
+  // counts toward the account total, which is read from an account-level field, not summed
+  // here) but must not appear as rows. Campaign-derived panel values use the visible subset so
+  // the mix chip and header labels reconcile with what's on screen.
+  const visibleCampaigns = record.campaigns.filter(isCampaignEnabled);
+  const capPaused = allCampaignsPaused(record);
+  const mix = budgetLimitedCount({ campaigns: visibleCampaigns });
   // Once any row carries a final_daily_budget, the table leads with the actually-applied
   // budget (current -> final). Pre-go-live rows (no final) keep the legacy proposed view.
-  const anyFinal = record.campaigns.some((c) => c.finalDailyBudget !== null);
+  const anyFinal = visibleCampaigns.some((c) => c.finalDailyBudget !== null);
   // Hide the feedback form when there's nothing actionable to approve.
   const showFeedbackForm = !showGrace && !record.accountOnTrack && needsApproval(record);
 
@@ -639,7 +647,16 @@ export function GAdsPacingDetailPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {record.campaigns.map((c, i) => {
+                  {visibleCampaigns.length === 0 && (
+                    <tr>
+                      <td colSpan={8} style={{ padding: '12px 8px', color: '#64748b', fontStyle: 'italic' }}>
+                        {capPaused
+                          ? 'All campaigns paused (cap reached).'
+                          : 'No active campaigns.'}
+                      </td>
+                    </tr>
+                  )}
+                  {visibleCampaigns.map((c, i) => {
                     const view = campaignBudgetView(c);
                     const badge = classificationBadge(c);
                     const conflict = shouldShowConflictIcon(c);

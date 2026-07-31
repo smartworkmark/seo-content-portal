@@ -442,6 +442,9 @@ function buildCampaign(
     statusReason: '',
     paused: false,
     pausedDate: '',
+    // Live Google Ads state. Default ENABLED; the paused-seeding block below flips the
+    // campaigns it pauses to 'PAUSED' so campaign_status tracks paused_by_agent in mock.
+    campaignStatus: 'ENABLED',
   };
 }
 
@@ -561,10 +564,12 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       campaigns.forEach((c) => {
         c.paused = true;
         c.pausedDate = runDate;
+        c.campaignStatus = 'PAUSED';
       });
     } else if (i % 6 === 1 && campaigns.length > 1) {
       campaigns[0].paused = true;
       campaigns[0].pausedDate = runDate;
+      campaigns[0].campaignStatus = 'PAUSED';
     }
 
     return {
