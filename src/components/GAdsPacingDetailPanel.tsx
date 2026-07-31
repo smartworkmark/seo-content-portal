@@ -5,10 +5,13 @@ import { createPortal } from 'react-dom';
 import type { ApprovalStatus, GAdsPacingCampaign, GAdsPacingRecord } from '@/types';
 import type { GAdsPacingFeedbackPayload, BudgetAllocationPayload } from '@/hooks/useContentData';
 import {
+  allocatableCampaigns,
   allocationSummary,
   derivePercent,
   dollarsFromPercent,
   eligibleCampaigns,
+  heldBudget,
+  isHeld,
   isSaveEnabled,
 } from '@/lib/budget-allocation';
 import {
@@ -27,9 +30,11 @@ import {
   dowFlagsList,
   dowPercentLabel,
   dowWeekdayLabel,
+  fmtCompactDate,
   fmtMoney,
   fmtSignedPercent,
   needsApproval,
+  statusReasonLabel,
   shouldShowConflictIcon,
   shouldShowDowBanner,
   shouldShowGenericInvestigateBanner,
@@ -191,8 +196,15 @@ function BudgetAllocationCard({
   onSubmitBudget: (record: GAdsPacingRecord, payload: BudgetAllocationPayload) => Promise<void>;
 }) {
   const accountBudget = record.monthlyBudget;
+  // eligible = gets a row (not shared). allocatable = can be given a new amount (also ENABLED).
   const eligible = eligibleCampaigns(record.campaigns);
+  const allocatable = allocatableCampaigns(record.campaigns);
+  const held = heldBudget(record.campaigns);
   const managed = record.budgetConfig?.managed ?? false;
+  // `campaigns` is this run date's roster, not live Google Ads. Editing an older row would
+  // save against a stale campaign list, so allocation is offered only on the latest run.
+  const isLatestRun = record.runDate === record.accountLatestRunDate;
+  const staleEditNote = `Editing is available on this account's latest run (${fmtCompactDate(record.accountLatestRunDate)}).`;
 
   const [editing, setEditing] = useState(false);
   // Draft dollar amounts keyed by campaignId (raw string so the field can be cleared).
@@ -204,8 +216,10 @@ function BudgetAllocationCard({
   const [confirmingClear, setConfirmingClear] = useState(false);
 
   const startEditing = () => {
+    // Seed only allocatable ids: keeping the draft keyed strictly to editable rows guarantees
+    // setDollars can never mutate a paused row.
     const seed: Record<string, string> = {};
-    eligible.forEach((c) => {
+    allocatable.forEach((c) => {
       seed[c.campaignId] = c.budgetDollars != null ? String(Math.round(c.budgetDollars)) : '';
     });
     setDraft(seed);
@@ -225,20 +239,57 @@ function BudgetAllocationCard({
     setDraft((prev) => ({ ...prev, [campaignId]: Number.isFinite(dollars) ? String(dollars) : '' }));
   };
 
-  const eligibleDollars = eligible.map((c) => parseFloat(draft[c.campaignId] ?? ''));
-  const summary = allocationSummary(eligibleDollars, accountBudget);
-  const canSave = isSaveEnabled(eligibleDollars) && updatedBy.trim().length > 0 && !submitting;
+  // Held dollars are deliberately NOT in the total: a paused campaign spends $0, so an account
+  // with money parked in one really will underspend. Surfaced separately below instead.
+  const allocatableDollars = allocatable.map((c) => parseFloat(draft[c.campaignId] ?? ''));
+  const summary = allocationSummary(allocatableDollars, accountBudget);
+  const canSave = isSaveEnabled(allocatableDollars) && updatedBy.trim().length > 0 && !submitting;
+
+  // Discriminate the reasons Save is dead — a single catch-all string leaves the operator at a
+  // dead end when every field looks filled in.
+  const saveHint = (() => {
+    if (allocatable.length === 0) {
+      return 'No active campaigns to allocate — you can still clear budgets below.';
+    }
+    // Reachable: `min={0}` is not enforced on typed input, only on the spinner.
+    if (allocatableDollars.some((d) => Number.isFinite(d) && d < 0)) {
+      return 'Budgets can’t be negative.';
+    }
+    const blank = allocatableDollars.some((d) => !Number.isFinite(d));
+    const noName = updatedBy.trim().length === 0;
+    if (blank && noName) {
+      return 'Give every active campaign an amount ($0 is allowed) and add your name to save.';
+    }
+    if (blank) return 'Give every active campaign an amount — $0 is allowed, blank is not.';
+    return 'Add your name to save.';
+  })();
 
   const submit = async (isManaged: boolean) => {
+    if (isManaged && !isSaveEnabled(allocatableDollars)) {
+      setError('Every active campaign needs a budget amount ($0 is allowed).');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
       const campaigns = isManaged
-        ? eligible.map((c) => ({
-            campaign_id: c.campaignId,
-            campaign_name: c.campaignName,
-            budget_dollars: parseFloat(draft[c.campaignId] ?? '') || 0,
-          }))
+        ? [
+            ...allocatable.map((c, i) => ({
+              campaign_id: c.campaignId,
+              campaign_name: c.campaignName,
+              // No `|| 0` coercion — the guard above already proved these finite and >= 0, so
+              // the gate and the wire read the same numbers and a blank can't become a $0.
+              budget_dollars: allocatableDollars[i],
+            })),
+            // Paused campaigns ride along read-only carrying their held amount, so the value is
+            // explicit on the wire and survives even if the backend rewrites the account block.
+            // Shared-budget campaigns stay omitted (they have no dollars to hold).
+            ...record.campaigns.filter(isHeld).map((c) => ({
+              campaign_id: c.campaignId,
+              campaign_name: c.campaignName,
+              budget_dollars: c.budgetDollars ?? 0,
+            })),
+          ]
         : [];
       await onSubmitBudget(record, { managed: isManaged, updatedBy: updatedBy.trim(), campaigns });
       setEditing(false);
@@ -253,8 +304,13 @@ function BudgetAllocationCard({
 
   return (
     <div style={cardStyle}>
-      <div className="mb-2.5 flex items-center justify-between gap-3">
-        <div style={sectionHeadingStyle}>Budget Allocation</div>
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <div className="flex items-baseline gap-2">
+          <div style={sectionHeadingStyle}>Budget Allocation</div>
+          <span className="text-[11px] text-slate-400">
+            Campaigns as of {fmtCompactDate(record.runDate)}
+          </span>
+        </div>
         {accountBudget > 0 && (
           <div className="text-xs text-slate-500">
             Account budget <span className="font-semibold text-slate-700">{fmtMoney(accountBudget)}/mo</span>
@@ -267,7 +323,9 @@ function BudgetAllocationCard({
         <div className="mb-3 rounded-lg bg-amber-50 px-4 py-3 ring-1 ring-amber-200">
           <div className="text-sm font-semibold text-amber-900">Running at the account level</div>
           {record.statusReason && (
-            <div className="mt-1 text-xs leading-relaxed text-amber-900/90">{record.statusReason}</div>
+            <div className="mt-1 text-xs leading-relaxed text-amber-900/90">
+              {statusReasonLabel(record.statusReason)}
+            </div>
           )}
         </div>
       )}
@@ -292,11 +350,19 @@ function BudgetAllocationCard({
                 </thead>
                 <tbody>
                   {record.campaigns.map((c, i) => (
-                    <tr key={c.campaignId || i} style={{ borderTop: '1px solid #f1f5f9' }}>
+                    <tr
+                      key={c.campaignId || i}
+                      style={{ borderTop: '1px solid #f1f5f9', opacity: isHeld(c) ? 0.6 : 1 }}
+                    >
                       <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>
                         {c.campaignName || '(unnamed)'}
                         {c.sharedBudget && (
                           <span className="ml-2 text-[11px] font-normal text-slate-400">shared budget</span>
+                        )}
+                        {isHeld(c) && (
+                          <span className="ml-2 text-[11px] font-normal text-slate-400">
+                            paused — held, not steering
+                          </span>
                         )}
                       </td>
                       <td style={{ padding: '8px', textAlign: 'right', color: '#334155' }}>
@@ -319,12 +385,16 @@ function BudgetAllocationCard({
               </table>
             </div>
             <div className="mt-3 flex justify-end">
-              <button
-                onClick={startEditing}
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Edit allocation
-              </button>
+              {isLatestRun ? (
+                <button
+                  onClick={startEditing}
+                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Edit allocation
+                </button>
+              ) : (
+                <span className="text-xs text-slate-400">{staleEditNote}</span>
+              )}
             </div>
           </>
         ) : (
@@ -332,7 +402,9 @@ function BudgetAllocationCard({
             <span className="text-sm text-slate-500">
               No campaign budgets set — pacing runs at the account level.
             </span>
-            {eligible.length > 0 ? (
+            {!isLatestRun ? (
+              <span className="text-xs text-slate-400">{staleEditNote}</span>
+            ) : allocatable.length > 0 ? (
               <button
                 onClick={startEditing}
                 className="rounded-md bg-indigo-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-950"
@@ -340,7 +412,16 @@ function BudgetAllocationCard({
                 Set campaign budgets
               </button>
             ) : (
-              <span className="text-xs text-slate-400">All campaigns are on shared budgets — not eligible.</span>
+              // Three distinct causes, three distinct messages: collapsing "all paused" into
+              // "all shared" would send the operator to Google Ads to fix a budget structure
+              // that isn't the problem.
+              <span className="text-xs text-slate-400">
+                {record.campaigns.length === 0
+                  ? 'No campaigns on this account.'
+                  : eligible.length === 0
+                    ? 'All campaigns are on shared budgets — not eligible.'
+                    : 'All campaigns are paused — allocation is available once one is re-enabled.'}
+              </span>
             )}
           </div>
         )
@@ -350,6 +431,20 @@ function BudgetAllocationCard({
           {!(accountBudget > 0) && (
             <div className="mb-3 text-xs text-amber-700">
               Account budget unavailable from HubSpot — percentages can&apos;t be shown. You can still set dollar amounts.
+            </div>
+          )}
+          {allocatable.length === 0 && (
+            <div className="mb-3 rounded-lg bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+              <div className="text-sm font-semibold text-slate-700">No active campaigns</div>
+              <div className="mt-1 text-xs leading-relaxed text-slate-600">
+                Every campaign on this account is paused or on a shared budget, so there&apos;s
+                nothing to allocate right now
+                {held.dollars > 0 && (
+                  <> — {fmtMoney(held.dollars)} stays held against the paused campaigns</>
+                )}
+                . Saved budgets are preserved; you can clear them back to account-level pacing
+                below.
+              </div>
             </div>
           )}
           <div style={{ overflowX: 'auto' }}>
@@ -364,11 +459,18 @@ function BudgetAllocationCard({
               <tbody>
                 {record.campaigns.map((c, i) => {
                   const shared = c.sharedBudget;
+                  // Key on campaign_status via isHeld — never on c.paused (that's
+                  // paused_by_agent from a different sheet) and never on spend (an ENABLED
+                  // campaign with $0 spend is fully allocatable).
+                  const paused = isHeld(c);
                   const dollarsStr = draft[c.campaignId] ?? '';
                   const dollarsNum = parseFloat(dollarsStr);
                   const pctVal = Number.isFinite(dollarsNum) ? derivePercent(dollarsNum, accountBudget) : NaN;
                   return (
-                    <tr key={c.campaignId || i} style={{ borderTop: '1px solid #f1f5f9' }}>
+                    <tr
+                      key={c.campaignId || i}
+                      style={{ borderTop: '1px solid #f1f5f9', opacity: paused ? 0.6 : 1 }}
+                    >
                       <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>
                         {c.campaignName || '(unnamed)'}
                         {shared && (
@@ -376,28 +478,59 @@ function BudgetAllocationCard({
                             shared budget — set at the Google Ads budget level
                           </span>
                         )}
+                        {paused && (
+                          <span className="ml-2 text-[11px] font-normal text-slate-400">
+                            {c.budgetDollars != null
+                              ? `paused — ${fmtMoney(c.budgetDollars)} held, not steering`
+                              : 'paused — not steering'}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '8px', textAlign: 'right' }}>
-                        <input
-                          type="number"
-                          min={0}
-                          disabled={shared}
-                          value={shared ? '' : dollarsStr}
-                          onChange={(e) => setDollars(c.campaignId, e.target.value)}
-                          placeholder={shared ? '—' : '0'}
-                          className="w-28 px-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
-                        />
+                        {/* Static text, not a disabled input: an input carrying a value reads
+                            as "editable once I fix something" and asserts the draft holds that
+                            number when it doesn't. */}
+                        {paused ? (
+                          <span className="inline-block w-28 pr-2 text-sm text-slate-400">
+                            {c.budgetDollars != null ? fmtMoney(c.budgetDollars) : '—'}
+                          </span>
+                        ) : (
+                          <input
+                            type="number"
+                            min={0}
+                            disabled={shared}
+                            value={shared ? '' : dollarsStr}
+                            onChange={(e) => setDollars(c.campaignId, e.target.value)}
+                            placeholder={shared ? '—' : '0'}
+                            className="w-28 px-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
+                          />
+                        )}
                       </td>
                       <td style={{ padding: '8px', textAlign: 'right' }}>
-                        <input
-                          type="number"
-                          min={0}
-                          disabled={shared || !(accountBudget > 0)}
-                          value={shared || !Number.isFinite(pctVal) ? '' : fmtPercentDisplay(pctVal)}
-                          onChange={(e) => setFromPercent(c.campaignId, e.target.value)}
-                          placeholder={shared ? '—' : '0'}
-                          className="w-20 px-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
-                        />
+                        {paused ? (
+                          <span className="inline-block w-20 pr-2 text-sm text-slate-400">
+                            {c.budgetDollars != null && accountBudget > 0
+                              ? `${fmtPercentDisplay(derivePercent(c.budgetDollars, accountBudget))}%`
+                              : '—'}
+                          </span>
+                        ) : (
+                          <input
+                            type="number"
+                            min={0}
+                            disabled={shared || !(accountBudget > 0)}
+                            // derivePercent returns 0 when the account budget is unknown and
+                            // Number.isFinite(0) is true, so without the budget check this
+                            // renders a misleading 0 — which now reads as a real $0 allocation.
+                            value={
+                              shared || !(accountBudget > 0) || !Number.isFinite(pctVal)
+                                ? ''
+                                : fmtPercentDisplay(pctVal)
+                            }
+                            onChange={(e) => setFromPercent(c.campaignId, e.target.value)}
+                            placeholder={shared ? '—' : '0'}
+                            className="w-20 px-2 py-1.5 text-sm text-right border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:text-slate-400"
+                          />
+                        )}
                       </td>
                     </tr>
                   );
@@ -415,8 +548,18 @@ function BudgetAllocationCard({
                   {' '}of {fmtMoney(accountBudget)} ({fmtPercentDisplay(summary.totalPercent)}%)
                 </>
               )}
+              {/* Names the excluded dollars so the arithmetic explains itself — otherwise the
+                  footer looks wrong next to a visible held amount in the table. */}
+              {held.dollars > 0 && (
+                <span className="text-slate-400">
+                  {' '}· {fmtMoney(held.dollars)} held in {held.count} paused{' '}
+                  {held.count === 1 ? 'campaign' : 'campaigns'}
+                </span>
+              )}
             </div>
-            {summary.warning && (
+            {/* With nothing allocatable the summary would read "100% under" next to the
+                dedicated no-active-campaigns banner. */}
+            {allocatable.length > 0 && summary.warning && (
               <div className="text-xs font-medium text-amber-700">⚠ {summary.warning}</div>
             )}
           </div>
@@ -434,10 +577,8 @@ function BudgetAllocationCard({
 
           <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
             {error && <span className="mr-auto text-xs text-red-600">{error}</span>}
-            {!canSave && !error && (
-              <span className="mr-auto text-xs text-slate-400">
-                Assign every eligible campaign a budget and add your name to save.
-              </span>
+            {!canSave && !error && !submitting && (
+              <span className="mr-auto text-xs text-slate-400">{saveHint}</span>
             )}
             {managed &&
               (confirmingClear ? (

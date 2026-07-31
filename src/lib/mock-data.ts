@@ -560,6 +560,10 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
     //   i % 6 === 4 -> every campaign paused (account reads as "Paused", row dimmed)
     //   i % 6 === 1 with >1 campaign -> only the first campaign paused (account keeps its
     //     pacing status; the campaign shows a "paused" tag on expand)
+    //   i % 6 === 0 with >1 campaign -> managed account whose LAST campaign is paused while
+    //     still holding its allocation. This is the stranded-budget case the allocation editor
+    //     greys out ("paused — $X held, not steering"); without it the held-amount path and the
+    //     under-allocation warning it produces aren't reachable from mock data.
     if (scenario !== 'grace' && i % 6 === 4) {
       campaigns.forEach((c) => {
         c.paused = true;
@@ -570,6 +574,10 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       campaigns[0].paused = true;
       campaigns[0].pausedDate = runDate;
       campaigns[0].campaignStatus = 'PAUSED';
+    } else if (scenario !== 'grace' && i % 6 === 0 && campaigns.length > 1) {
+      // Paused in Google Ads but NOT paused_by_agent — the two signals are distinct, and the
+      // allocation editor must key on campaignStatus.
+      campaigns[campaigns.length - 1].campaignStatus = 'PAUSED';
     }
 
     return {
@@ -602,6 +610,10 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       budgetConfig,
       effectiveMode,
       statusReason,
+      // Each mock account gets exactly one record (googleAdsId is derived from i), so every
+      // row is its own latest and the allocation editor is never stale-gated here. The stale
+      // path needs real multi-day history to exercise.
+      accountLatestRunDate: runDate,
     };
   });
 }

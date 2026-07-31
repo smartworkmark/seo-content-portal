@@ -178,6 +178,10 @@ export interface GAdsPacingRecord {
   budgetConfig: AccountBudgetConfig | null;
   effectiveMode: 'account' | 'campaign';
   statusReason: string;
+  // Newest runDate loaded for this googleAdsId, computed per record array in
+  // applyBudgetConfigs. `campaigns` is that run date's roster, not live Google Ads, so the
+  // allocation editor compares runDate against this to refuse edits on a stale roster.
+  accountLatestRunDate: string;
 }
 
 // Keyword Build-Out (proposed keywords for review)

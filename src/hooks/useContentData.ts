@@ -245,7 +245,17 @@ export function useContentData(
                 : null,
               campaigns: r.campaigns.map((c) => ({
                 ...c,
-                budgetDollars: payload.managed ? (dollarsByCampaign.get(c.campaignId) ?? null) : null,
+                // Absence from the payload means "leave alone", never "clear" — the backend
+                // tombstones only via removed_campaign_ids, so client and server must agree.
+                // Shared-budget campaigns are always omitted; paused ones ride along read-only.
+                // Test with .has(), not `?? c.budgetDollars`: `??` would silently restore the
+                // OLD value if anything upstream yielded undefined for a campaign that WAS in
+                // the payload, surfacing as "my $0 save didn't take" with no error.
+                budgetDollars: payload.managed
+                  ? (dollarsByCampaign.has(c.campaignId)
+                      ? (dollarsByCampaign.get(c.campaignId) as number)
+                      : c.budgetDollars)
+                  : null,
               })),
             }
           : r

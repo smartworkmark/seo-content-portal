@@ -2,6 +2,126 @@
 
 ---
 
+## 2026-07-31 — Optimistic budget save silently wiped campaigns absent from the payload
+
+### Symptoms
+Latent, and invisible until paused campaigns started rendering a held amount. After saving a
+campaign budget allocation, any campaign not included in the POST body had its `budgetDollars`
+blanked in local state until the next hourly sync. Shared-budget campaigns had been hitting this
+since the feature shipped; it was masked because the read-only table short-circuits on
+`c.sharedBudget` and prints `—` for them regardless of the value.
+
+### Root Cause
+`useContentData.ts` built `dollarsByCampaign` from `payload.campaigns` and then applied it to
+*every* campaign on the account:
+
+```ts
+budgetDollars: payload.managed ? (dollarsByCampaign.get(c.campaignId) ?? null) : null
+```
+
+`.get()` returns `undefined` for a campaign that was never in the payload, and `?? null` converts
+that into "this campaign has no budget" — conflating **"not mentioned"** with **"cleared"**. The
+backend does the opposite: it tombstones only campaigns named in `removed_campaign_ids`, so
+absence means "leave alone". Client and server disagreed about the meaning of omission.
+
+### Fix
+Test membership, don't coalesce the value:
+
+```ts
+budgetDollars: payload.managed
+  ? (dollarsByCampaign.has(c.campaignId)
+      ? (dollarsByCampaign.get(c.campaignId) as number)
+      : c.budgetDollars)   // absent from payload → leave alone
+  : null;                   // managed:false clears everything, correctly
+```
+
+`.has()` rather than `?? c.budgetDollars`: the `??` form happens to work for a legitimate `0`, but
+it would silently restore the **old** value if anything upstream ever yielded `undefined` for a
+campaign that *was* in the payload — surfacing to the operator as "my $0 save didn't take", with
+no error anywhere.
+
+### Rule to remember
+**In an optimistic update, "absent from the payload" and "set to empty" are different facts —
+encode which one you mean.** Reach for `map.has(key)` when the question is membership; `?? default`
+answers a different question and quietly merges the two cases. Check this whenever the payload is
+a *filtered* subset of what's on screen, and make sure the client's meaning of omission matches
+the backend's.
+
+---
+
+## 2026-07-31 — A "$0 allocation" needed a backend gate, not a frontend fallback
+
+### Symptoms
+Operators wanted to park a campaign at $0 ("keep it to zero for now, we'll set it as soon as we're
+able"). The allocation save gate required every field `> 0`, so $0 was unreachable.
+
+### Root Cause
+Relaxing the gate alone would have been actively dangerous, not merely a no-op. A $0 target on an
+ENABLED campaign that has already spent this month sets `campaignSteered = true` and proposes
+$0/day, which the damping ladder converts into a compounding $50 → $35 → $25 decrease — silently,
+with no operator-visible signal. A frontend-only fallback (e.g. `&& cfg.budget_dollars > 0`
+reverting the row to spend-share) would also have left the row routable, so day-of-week shaping
+would still convert it and `Alter Budget` would still write it — the n8n code carries an explicit
+`DOW_CONVERT_EXCLUSIONS` list precisely for this, and a frontend fallback wouldn't be on it.
+Worse, spend-share for one campaign while its siblings steer by target breaks the XOR invariant
+that an account is *either* account-steered *or* campaign-steered.
+
+### Fix
+Backend B4: a `NO_CHANGE / UNALLOCATED_TARGET` branch in the routing ladder plus the exclusion
+entry, making $0 genuinely inert. Only then was the frontend gate relaxed to
+`Number.isFinite(d) && d >= 0`. This also dissolved the `budget_dollars || 0` ambiguity — blank
+and deliberate-zero now mean the same thing ("not allocated yet") and behave identically.
+
+Removed the `parseFloat(...) || 0` coercion in the payload at the same time: it silently turned
+NaN into a deliberate $0. Unreachable through the button while the gate held, but exactly the trap
+the `>= 0` change arms.
+
+### Rule to remember
+**Before relaxing a validation gate, find out what the value does downstream — a gate is often the
+only thing standing between a benign-looking input and a live money path.** "It'll just be a
+no-op" is a hypothesis about the backend, not a fact about the frontend. And when a sentinel value
+becomes legal, audit every `|| 0` / `?? 0` on its path: those coercions were load-bearing
+correctness only while the value was impossible.
+
+---
+
+## 2026-07-31 — Hiding paused campaigns from the allocation editor would have stranded budget invisibly
+
+### Symptoms
+A PAUSED campaign rendered as a fully editable, save-gated row in the budget allocation card,
+while the campaign breakdown directly below it hid the same campaign — the two halves of one panel
+disagreed. The obvious fix (filter paused out of the editor too) was wrong.
+
+### Root Cause
+Two things collided. `campaignStatus` had been in the feed since the 7/30 deploy but
+`isEligible()` still only checked `sharedBudget`, with a stale comment claiming paused state was
+"not yet in the feed". Separately, backend B4 made a paused campaign's allocation **retained and
+inert** — so the money stays parked where it cannot steer. Filtering the row out would have made
+that stranded budget invisible *and* unclearable. Live data at the time: 293 records with an
+eligible+PAUSED campaign, 45 holding real money — one account with its entire $2,500 budget parked
+in two paused campaigns.
+
+### Fix
+Split the predicate rather than widening it. `isEligible` ("does this get a row?") stays
+`!sharedBudget`; new `isAllocatable` ("can this be given a new amount?") adds `isCampaignEnabled`.
+Rendering keys off the first, the save gate/draft/summary/editable-payload off the second. Paused
+rows render greyed with the held amount as static text. Held dollars are **excluded** from the
+allocation total and named separately, so the under-allocation warning fires and explains itself.
+
+The same eligibility predicate was inlined a second time in `applyBudgetConfigs`'s mode rollup;
+that copy was repointed at `isAllocatable` too, otherwise a paused campaign whose status row never
+flipped to `'campaign'` would hold the account at account-level forever.
+
+### Rule to remember
+**When a filter would hide a state the operator needs to act on, the answer is a disabled
+affordance, not a hidden one.** "Not editable" and "not visible" are different requirements and
+frequently pull in opposite directions — before filtering, ask what becomes undetectable. Related:
+when one predicate starts serving two questions, split it instead of widening it, and grep for
+inlined copies of it (`applyBudgetConfigs` had one) rather than assuming the exported helper is the
+only definition.
+
+---
+
 ## 2026-07-29 — Paused campaigns appear to receive budget increases
 
 ### Symptoms
