@@ -146,6 +146,31 @@ export function isCampaignEnabled(campaign: Pick<GAdsPacingCampaign, 'campaignSt
   return String(campaign.campaignStatus || 'ENABLED').toUpperCase() === 'ENABLED';
 }
 
+// The backend writes status_reason as lowercase snake_case tokens (Campaign Budget Status
+// sheet); parseBudgetStatus passes them through raw, so they'd otherwise render as-is in the
+// amber "Running at the account level" banner. `paused` and `no_active_campaigns` arrive with
+// the B2 log-column change — `no_active_campaigns` is also the signal backlog #6 (grey out
+// connected accounts with no spend) needs, so it is wired once here.
+export const STATUS_REASON_LABELS: Record<string, string> = {
+  good: 'Campaign-level pacing is running as configured.',
+  not_managed: 'No campaign budgets set — pacing runs at the account level.',
+  incomplete: 'Not every active campaign has a budget — pacing runs at the account level until all of them do.',
+  shared_budget: 'A targeted campaign is on a shared budget — pacing runs at the account level.',
+  drift: 'The saved budgets no longer match the campaigns on this account — re-save the allocation.',
+  sum_overshoot: 'The campaign budgets add up to more than the account budget — pacing runs at the account level.',
+  blocked_by_sibling: 'Another campaign on this account is blocking campaign-level pacing.',
+  paused: 'This campaign is paused — its budget is held and is not steering.',
+  no_active_campaigns: 'Every campaign on this account is paused — nothing is steering right now.',
+};
+
+// Unknown values pass through UNCHANGED: the account rollup in google-sheets.ts writes full
+// English sentences of its own, and an unmapped future backend token should degrade to raw
+// rather than to blank.
+export function statusReasonLabel(raw: string): string {
+  if (!raw) return '';
+  return STATUS_REASON_LABELS[raw.trim().toLowerCase()] ?? raw;
+}
+
 // An account reads as "Paused" only when it has campaigns and every one is paused
 // (paused_by_agent from the Campaign Budget Status sheet). A partially-paused account keeps
 // pacing on its live campaigns and retains its normal status.

@@ -2,6 +2,7 @@ import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError,
 import { getMockData, resetMockData } from './mock-data';
 import { filterGAdsPacing, isValidUrl } from '@/lib/utils';
 import { currentMonthPausedGAdsPacing, needsApproval } from './g-ads-pacing';
+import { isAllocatable, isEligible } from './budget-allocation';
 
 // Check if Google Sheets credentials are configured
 function isConfigured(): boolean {
@@ -459,6 +460,7 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
         budgetConfig: null,
         effectiveMode: 'account',
         statusReason: '',
+        accountLatestRunDate: runDate,
       });
     }
   });
@@ -588,9 +590,28 @@ function applyBudgetConfigs(
     dates.add(status.pausedDate);
   });
 
+  // Newest runDate per account across every loaded record. `campaigns` is a snapshot of that
+  // run date's roster, not live Google Ads, so the allocation editor uses this to refuse edits
+  // against a stale roster. Computed over the full array before it is sliced to the 7-day
+  // window or reduced to the paused snapshot, so it is the true latest in both.
+  // Compared as timestamps, not strings — runDate formatting varies with the sheet locale, so
+  // a lexical compare would silently pick the wrong row on e.g. "7/9" vs "7/31".
+  const runDateValue = (raw: string): number => {
+    const t = new Date(raw).getTime();
+    return Number.isFinite(t) ? t : -Infinity;
+  };
+  const latestRunDateByAccount = new Map<string, string>();
+  records.forEach((record) => {
+    const current = latestRunDateByAccount.get(record.googleAdsId);
+    if (current === undefined || runDateValue(record.runDate) > runDateValue(current)) {
+      latestRunDateByAccount.set(record.googleAdsId, record.runDate);
+    }
+  });
+
   records.forEach((record) => {
     const config = configMap.get(record.googleAdsId);
     record.pauseDates = Array.from(pauseDatesByAccount.get(record.googleAdsId) ?? []);
+    record.accountLatestRunDate = latestRunDateByAccount.get(record.googleAdsId) ?? record.runDate;
 
     record.budgetConfig = config
       ? {
@@ -614,24 +635,36 @@ function applyBudgetConfigs(
       c.pausedDate = status?.pausedDate ?? '';
     });
 
-    // Account rollup: campaign-level only when managed AND every eligible campaign is
-    // effectively campaign-level per backend status. Otherwise account-level with the
-    // first explanatory reason (shared-budget revert, incomplete coverage, etc.).
+    // Account rollup: campaign-level only when managed AND every ALLOCATABLE campaign (not
+    // shared, ENABLED in Google Ads) is effectively campaign-level per backend status.
+    // A PAUSED campaign whose Campaign Budget Status row never flipped to 'campaign' must not
+    // hold the whole account at account-level forever — it isn't steering anything.
+    // Backend effective_mode is authoritative; this rollup is display/filter only.
     if (config?.managed) {
-      const eligible = record.campaigns.filter((c) => !c.sharedBudget);
+      const allocatable = record.campaigns.filter(isAllocatable);
       const allCampaign =
-        eligible.length > 0 && eligible.every((c) => c.effectiveMode === 'campaign');
+        allocatable.length > 0 && allocatable.every((c) => c.effectiveMode === 'campaign');
       if (allCampaign) {
         record.effectiveMode = 'campaign';
         record.statusReason = '';
       } else {
+        // Nothing is steering, so 'account' is factually correct in every branch here.
+        // Claiming 'campaign' would suppress the panel's revert banner and hide a real
+        // state change from the operator.
         record.effectiveMode = 'account';
-        const reasonSource =
-          record.campaigns.find((c) => c.statusReason)?.statusReason ||
-          (record.campaigns.some((c) => c.sharedBudget)
-            ? 'A targeted campaign is on a shared budget — pacing runs at the account level.'
-            : 'Pending re-evaluation.');
-        record.statusReason = reasonSource;
+        record.statusReason =
+          allocatable.length === 0
+            ? record.campaigns.length === 0
+              ? 'Pending re-evaluation.'
+              : record.campaigns.some(isEligible)
+                ? 'Every targeted campaign is paused — pacing runs at the account level until one is re-enabled.'
+                : 'Every campaign is on a shared budget — pacing runs at the account level.'
+            : // Prefer a reason from a live campaign: a paused campaign's reason describes a
+              // state that is no longer steering anything, and would otherwise outrank it.
+              allocatable.find((c) => c.statusReason)?.statusReason ||
+              (record.campaigns.some((c) => c.sharedBudget)
+                ? 'A targeted campaign is on a shared budget — pacing runs at the account level.'
+                : 'Pending re-evaluation.');
       }
     } else {
       record.effectiveMode = 'account';
