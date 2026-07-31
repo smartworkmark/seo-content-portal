@@ -360,6 +360,8 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
   const appliedDecreaseIdx = idx('applied_decrease_percent');
   const dowMultiplierIdx = idx('dow_multiplier');
   const dowFlagsIdx = idx('dow_flags');
+  // Live Google Ads campaign state (ENABLED / PAUSED). Blank on historical rows.
+  const campaignStatusIdx = idx('campaign_status');
 
   const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
 
@@ -396,6 +398,7 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       statusReason: '',
       paused: false,
       pausedDate: '',
+      campaignStatus: String(cell(row, campaignStatusIdx) ?? '').trim(),
     };
 
     const existing = groups.get(key);

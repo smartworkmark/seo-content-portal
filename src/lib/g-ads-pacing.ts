@@ -94,6 +94,17 @@ export const DISPLAY_STATUS_PAUSED_STYLE = {
   text: 'text-slate-500',
 } as const;
 
+// An account whose every campaign is currently PAUSED (campaign_status), i.e. the pacing
+// agent paused everything at the monthly budget cap. Its month-to-date pace is technically
+// in-band, so without this it would read as "On Track" over an empty campaign list. Distinct
+// label so it isn't confused with the event-based Paused pill above. Gray family (no live
+// pacing signal). Label is client-facing — confirm wording with Bill before shipping.
+export const DISPLAY_STATUS_CAP_PAUSED_STYLE = {
+  label: 'Paused (cap reached)',
+  pill: 'bg-slate-100 ring-1 ring-slate-200',
+  text: 'text-slate-500',
+} as const;
+
 // The five tiers, ordered for the filter dropdown (worst-over → worst-under).
 export const DISPLAY_STATUS_OPTIONS: DisplayStatus[] = [
   'Significantly Overpacing',
@@ -128,11 +139,27 @@ export function displayStatusFromVariance(variancePercent: number): DisplayStatu
   return mag > 20 ? 'Significantly Underpacing' : 'Underpacing';
 }
 
+// A campaign is shown in the portal only when its live Google Ads state is ENABLED. Blank
+// (historical rows written before the campaign_status column existed) defaults to ENABLED so
+// old views don't blank out. Filter on this — never on skip_reason/recommendation_type.
+export function isCampaignEnabled(campaign: Pick<GAdsPacingCampaign, 'campaignStatus'>): boolean {
+  return String(campaign.campaignStatus || 'ENABLED').toUpperCase() === 'ENABLED';
+}
+
 // An account reads as "Paused" only when it has campaigns and every one is paused
 // (paused_by_agent from the Campaign Budget Status sheet). A partially-paused account keeps
 // pacing on its live campaigns and retains its normal status.
 export function isAccountPaused(record: Pick<GAdsPacingRecord, 'campaigns'>): boolean {
   return record.campaigns.length > 0 && record.campaigns.every((c) => c.paused);
+}
+
+// Every campaign is currently PAUSED in Google Ads (campaign_status), i.e. the agent hit the
+// monthly cap and switched everything off. Distinct from isAccountPaused, which keys on the
+// paused_by_agent flag (Campaign Budget Status) for the dedicated Paused-practices view. This
+// one keys on campaign_status so it lines up exactly with the breakdown filter — an empty
+// visible campaign list always coincides with this being true — and drives the client status.
+export function allCampaignsPaused(record: Pick<GAdsPacingRecord, 'campaigns'>): boolean {
+  return record.campaigns.length > 0 && record.campaigns.every((c) => !isCampaignEnabled(c));
 }
 
 // Dedicated paused-view snapshots carry the pause event at account level because paused
@@ -276,7 +303,10 @@ export function resolveDisplayStatus(
     GAdsPacingRecord,
     'campaigns' | 'displayStatus' | 'variancePercent' | 'runDate' | 'pauseDates'
   >,
-): DisplayStatus | 'Paused' | null {
+): DisplayStatus | 'Paused' | 'Paused (cap reached)' | null {
+  // A live all-paused account has no pacing signal to show and would otherwise resolve to a
+  // healthy tier over an empty campaign list — this override takes precedence over everything.
+  if (allCampaignsPaused(record)) return 'Paused (cap reached)';
   if (isPausedOnRunDate(record)) return 'Paused';
   if (shouldShowGraceBanner(record)) return null;
   return normalizeDisplayStatus(record.displayStatus) ?? displayStatusFromVariance(record.variancePercent);
@@ -290,6 +320,7 @@ export function displayStatusPill(
   >,
 ): { label: string; pill: string; text: string } {
   const tier = resolveDisplayStatus(record);
+  if (tier === 'Paused (cap reached)') return DISPLAY_STATUS_CAP_PAUSED_STYLE;
   if (tier === 'Paused') return DISPLAY_STATUS_PAUSED_STYLE;
   if (tier === null) return DISPLAY_STATUS_NEW_STYLE;
   return DISPLAY_STATUS_STYLES[tier];
@@ -303,6 +334,7 @@ export function displayStatusRank(
   >,
 ): number {
   const tier = resolveDisplayStatus(record);
+  if (tier === 'Paused (cap reached)') return DISPLAY_STATUS_OPTIONS.length + 2;
   if (tier === 'Paused') return DISPLAY_STATUS_OPTIONS.length + 1;
   if (tier === null) return DISPLAY_STATUS_OPTIONS.length; // New → last
   return DISPLAY_STATUS_OPTIONS.indexOf(tier);

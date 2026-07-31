@@ -121,6 +121,11 @@ export interface GAdsPacingCampaign {
   // every campaign is paused (see isAccountPaused in g-ads-pacing.ts).
   paused: boolean;
   pausedDate: string;
+  // Raw Google Ads campaign state from the pacing sheet's `campaign_status` column
+  // (ENABLED / PAUSED). Blank on historical rows written before the column existed —
+  // treated as ENABLED (see isCampaignEnabled in g-ads-pacing.ts). Drives which campaigns
+  // are shown in the breakdown and the "Paused (cap reached)" account status.
+  campaignStatus: string;
 }
 
 // Operator intent for an account's campaign-level budget split. Persisted in the
