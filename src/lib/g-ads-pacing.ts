@@ -556,6 +556,16 @@ export function fmtSignedPercent(n: number): string {
   return `${sign}${Math.round(n)}%`;
 }
 
+// Share of the month's total budget consumed as of this row's run date. Returns '' rather
+// than a number so the caller can omit the bracket entirely when the budget is missing or
+// zero — mirroring the Number.isFinite guards on fmtMoney/fmtSignedPercent, which degrade
+// to a dash instead of rendering NaN. No live account has a $0 budget today, but mock data
+// and future months can, and "[Infinity%]" would be worse than nothing.
+export function fmtSpendShareOfBudget(spend: number, monthlyBudget: number): string {
+  if (!Number.isFinite(spend) || !Number.isFinite(monthlyBudget) || monthlyBudget <= 0) return '';
+  return `${Math.round((spend / monthlyBudget) * 100)}%`;
+}
+
 export function variancePercentTone(n: number): string {
   if (!Number.isFinite(n)) return 'text-slate-500';
   if (n >= 10) return 'text-rose-600';
