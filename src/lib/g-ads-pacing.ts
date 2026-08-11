@@ -119,6 +119,14 @@ export const DISPLAY_STATUS_OPTIONS: DisplayStatus[] = [
 export type StatusFilter = DisplayStatus;
 export const STATUS_FILTER_OPTIONS: StatusFilter[] = [...DISPLAY_STATUS_OPTIONS];
 
+// The G Ads Pacing tab renders one of three mutually exclusive views. A union rather than a
+// pair of booleans: {paused, lastMonth} both-true is not a state this tab has, and encoding it
+// as booleans would force a precedence rule at every branch site. 'daily' is the normal
+// 1/3/7-day history; 'paused' is the current-month pause-event snapshot; 'last-month' is the
+// previous calendar month's closing spend. Only 'daily' honors the date pills and the
+// Status/Mode/Feedback filters — the other two bypass (never clear) them.
+export type PacingView = 'daily' | 'paused' | 'last-month';
+
 // Case-insensitive match of a raw sheet value to a known tier. Returns null for blank/unknown
 // so the caller can fall back to the variance-derived tier.
 export function normalizeDisplayStatus(raw: string | undefined | null): DisplayStatus | null {
@@ -317,6 +325,70 @@ export function currentMonthPausedGAdsPacing(
     const latest = latestByAccount.get(googleAdsId);
     return latest ? [{ ...latest, pausedDate }] : [];
   });
+}
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+// The calendar month immediately before `now`, rolling the year back in January.
+export function previousCalendarMonth(now = new Date()): { year: number; month: number } {
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  return month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 };
+}
+
+// "July 2026" — the period label for the Last month view's chip and empty state.
+export function previousMonthLabel(now = new Date()): string {
+  const { year, month } = previousCalendarMonth(now);
+  return `${MONTH_NAMES[month]} ${year}`;
+}
+
+// "2026-07" — sortable period marker for the Last month CSV filename.
+export function previousMonthSlug(now = new Date()): string {
+  const { year, month } = previousCalendarMonth(now);
+  return `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
+// Label a run date's OWN month, e.g. '2026-07-31' -> 'July 2026'. Preferred over
+// previousMonthLabel() wherever a row is in hand: the row came from the server, so a
+// data-derived label can't disagree with the rows on screen the way a clock-derived one can
+// when the server and browser sit on opposite sides of a month boundary.
+export function monthLabelFromDate(dateValue: string): string {
+  const m = calendarMonth(dateValue ?? '');
+  return m ? `${MONTH_NAMES[m.month]} ${m.year}` : '';
+}
+
+// One closing snapshot per Google Ads account: the newest pacing run whose runDate falls in the
+// previous calendar month. The sheet has no month-close column — every spend field is *_mtd as
+// of that run — so an account's last in-month run IS its closing spend, and that row's own
+// runDate is the honest "as of" date. Unlike currentMonthPausedGAdsPacing, which must synthesize
+// pausedDate because the pause event lives in a different sheet, nothing is added here.
+export function lastMonthGAdsPacing(
+  records: GAdsPacingRecord[],
+  now = new Date(),
+): GAdsPacingRecord[] {
+  const { year, month } = previousCalendarMonth(now);
+  const newestByAccount = new Map<string, { record: GAdsPacingRecord; key: string }>();
+
+  records.forEach((record) => {
+    const recordMonth = calendarMonth(record.runDate);
+    if (!recordMonth || recordMonth.year !== year || recordMonth.month !== month) return;
+
+    // Lexical YYYY-MM-DD compare, NOT new Date().getTime(): '2026-07-31' parses as UTC midnight
+    // while '7/31/2026' parses as LOCAL midnight, so a timestamp compare can invert two rows on
+    // adjacent dates when the sheet's date format varies. calendarDateKey normalizes both.
+    const key = calendarDateKey(record.runDate);
+    if (!key) return;
+
+    const existing = newestByAccount.get(record.googleAdsId);
+    if (!existing || key > existing.key) {
+      newestByAccount.set(record.googleAdsId, { record, key });
+    }
+  });
+
+  return Array.from(newestByAccount.values()).map(({ record }) => ({ ...record }));
 }
 
 // Single source of truth for a historical pacing row's client status. A matching pause event

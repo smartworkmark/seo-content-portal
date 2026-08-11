@@ -2,7 +2,7 @@
 
 import { DateRange, ContentType, SavedFilter, FeatureFilters } from '@/types';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { STATUS_FILTER_OPTIONS, type StatusFilter } from '@/lib/g-ads-pacing';
+import { STATUS_FILTER_OPTIONS, type PacingView, type StatusFilter } from '@/lib/g-ads-pacing';
 import { MultiSelectDropdown } from './MultiSelectDropdown';
 import { SavedFiltersBar } from './SavedFiltersBar';
 import { SaveFilterModal } from './SaveFilterModal';
@@ -29,9 +29,12 @@ interface FiltersProps {
   onModesChange?: (modes: Array<'account' | 'campaign'>) => void;
   needsReviewOnly?: boolean;
   onNeedsReviewChange?: (v: boolean) => void;
-  isPausedView?: boolean;
-  onPausedViewChange?: (v: boolean) => void;
+  pacingView?: PacingView;
+  onPacingViewChange?: (v: PacingView) => void;
   pausedCount?: number;
+  lastMonthCount?: number;
+  // "July 2026" — computed once in page.tsx so the chip and the table's empty state agree.
+  periodLabel?: string;
   selectedConfidences?: string[];
   onConfidencesChange?: (confidences: string[]) => void;
 }
@@ -64,9 +67,11 @@ export function Filters({
   onModesChange,
   needsReviewOnly = false,
   onNeedsReviewChange,
-  isPausedView = false,
-  onPausedViewChange,
+  pacingView = 'daily',
+  onPacingViewChange,
   pausedCount = 0,
+  lastMonthCount = 0,
+  periodLabel = '',
   selectedConfidences = [],
   onConfidencesChange,
 }: FiltersProps) {
@@ -122,12 +127,16 @@ export function Filters({
             />
           </div>
 
-          {/* Date range + dedicated paused-practices view */}
+          {/* Date range, or a static period chip in the two alternate pacing views */}
           <div className="flex items-center gap-2">
-            {contentType === 'g-ads-pacing' && isPausedView ? (
+            {contentType === 'g-ads-pacing' && pacingView !== 'daily' ? (
+              // The alternate views are scoped server-side (current month for pauses, previous
+              // calendar month for closing spend), so the 1/3/7-day pills don't apply. The chip
+              // reuses the selected-pill styling so the control reads as "locked", and
+              // selectedDateRange is left untouched — returning to Daily restores it.
               <div className="flex items-center rounded-lg bg-gray-100 p-1">
                 <span className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-gray-900 shadow-sm">
-                  This Month
+                  {pacingView === 'paused' ? 'This Month' : (periodLabel || 'Last Month')}
                 </span>
               </div>
             ) : (
@@ -150,75 +159,24 @@ export function Filters({
               </fieldset>
             )}
 
-            {contentType === 'g-ads-pacing' && onPausedViewChange && (
-              <button
-                type="button"
-                aria-pressed={isPausedView}
-                onClick={() => onPausedViewChange(!isPausedView)}
-                className={`px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
-                  isPausedView
-                    ? 'bg-slate-700 text-white shadow-sm'
-                    : 'bg-white text-slate-700 border border-slate-300 hover:bg-slate-50'
-                }`}
-              >
-                Paused practices ({pausedCount})
-              </button>
-            )}
-          </div>
-
-          {/* Status Filter (client-facing pacing tier) — G Ads Pacing tab only */}
-          {contentType === 'g-ads-pacing' && onStatusesChange && (
-            <fieldset
-              disabled={isPausedView}
-              className={`flex items-center gap-2 transition-opacity ${isPausedView ? 'opacity-45' : ''}`}
-            >
-              <label className="text-sm text-gray-600 whitespace-nowrap">Status:</label>
-              <MultiSelectDropdown
-                label="Status"
-                pluralLabel="Statuses"
-                options={STATUS_FILTER_OPTIONS}
-                selected={selectedStatuses}
-                onChange={(s) => onStatusesChange(s as StatusFilter[])}
-              />
-            </fieldset>
-          )}
-
-          {/* Mode Filter — G Ads Pacing tab only */}
-          {contentType === 'g-ads-pacing' && onModesChange && (
-            <fieldset
-              disabled={isPausedView}
-              className={`flex items-center gap-2 transition-opacity ${isPausedView ? 'opacity-45' : ''}`}
-            >
-              <label className="text-sm text-gray-600 whitespace-nowrap">Mode:</label>
-              <MultiSelectDropdown
-                label="Mode"
-                pluralLabel="Modes"
-                options={[...MODE_OPTIONS]}
-                selected={selectedModes.map(modeValueToLabel)}
-                onChange={(labels) => onModesChange(labels.map(modeLabelToValue))}
-              />
-            </fieldset>
-          )}
-
-          {/* Feedback Filter (All / Needs review) — G Ads Pacing tab only */}
-          {contentType === 'g-ads-pacing' && onNeedsReviewChange && (
-            <fieldset
-              disabled={isPausedView}
-              className={`flex items-center gap-2 transition-opacity ${isPausedView ? 'opacity-45' : ''}`}
-            >
-              <label className="text-sm text-gray-600 whitespace-nowrap">Feedback:</label>
-              <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            {/* Pacing view — a segmented control rather than independent toggles, so the three
+                mutually exclusive views can't be combined. */}
+            {contentType === 'g-ads-pacing' && onPacingViewChange && (
+              <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
                 {([
-                  { value: false, label: 'All' },
-                  { value: true, label: 'Needs review' },
+                  { value: 'daily', label: 'Daily' },
+                  { value: 'paused', label: `Paused practices (${pausedCount})` },
+                  { value: 'last-month', label: `Last month (${lastMonthCount})` },
                 ] as const).map((option) => (
                   <button
-                    key={option.label}
-                    onClick={() => onNeedsReviewChange(option.value)}
+                    key={option.value}
+                    type="button"
+                    aria-pressed={pacingView === option.value}
+                    onClick={() => onPacingViewChange(option.value)}
                     className={`
-                      px-3 py-1.5 text-sm rounded-md transition-colors
-                      ${needsReviewOnly === option.value
-                        ? 'bg-white text-gray-900 shadow-sm'
+                      px-3 py-1.5 text-sm rounded-md whitespace-nowrap transition-colors
+                      ${pacingView === option.value
+                        ? 'bg-white text-gray-900 shadow-sm font-medium'
                         : 'text-gray-600 hover:bg-indigo-50 hover:text-indigo-900'
                       }
                     `}
@@ -227,8 +185,8 @@ export function Filters({
                   </button>
                 ))}
               </div>
-            </fieldset>
-          )}
+            )}
+          </div>
 
           {/* Confidence Filter — Keyword Buildout tab only */}
           {contentType === 'kw-buildout' && onConfidencesChange && (
@@ -287,6 +245,76 @@ export function Filters({
           Export CSV
         </button>
       </div>
+
+      {/* Second row — G Ads Pacing record filters, separated from the view controls above so the
+          bar stops wrapping and the view/filter distinction is visible. Gated on the tab (not on
+          the individual handlers) so every other tab renders exactly one row. All three are inert
+          in the Paused and Last month views, which are scoped server-side; the selections are
+          disabled rather than cleared, so they reapply on return to Daily. */}
+      {contentType === 'g-ads-pacing' && (
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center flex-wrap">
+          {onStatusesChange && (
+            <fieldset
+              disabled={pacingView !== 'daily'}
+              className={`flex items-center gap-2 transition-opacity ${pacingView !== 'daily' ? 'opacity-45' : ''}`}
+            >
+              <label className="text-sm text-gray-600 whitespace-nowrap">Status:</label>
+              <MultiSelectDropdown
+                label="Status"
+                pluralLabel="Statuses"
+                options={STATUS_FILTER_OPTIONS}
+                selected={selectedStatuses}
+                onChange={(s) => onStatusesChange(s as StatusFilter[])}
+              />
+            </fieldset>
+          )}
+
+          {onModesChange && (
+            <fieldset
+              disabled={pacingView !== 'daily'}
+              className={`flex items-center gap-2 transition-opacity ${pacingView !== 'daily' ? 'opacity-45' : ''}`}
+            >
+              <label className="text-sm text-gray-600 whitespace-nowrap">Mode:</label>
+              <MultiSelectDropdown
+                label="Mode"
+                pluralLabel="Modes"
+                options={[...MODE_OPTIONS]}
+                selected={selectedModes.map(modeValueToLabel)}
+                onChange={(labels) => onModesChange(labels.map(modeLabelToValue))}
+              />
+            </fieldset>
+          )}
+
+          {onNeedsReviewChange && (
+            <fieldset
+              disabled={pacingView !== 'daily'}
+              className={`flex items-center gap-2 transition-opacity ${pacingView !== 'daily' ? 'opacity-45' : ''}`}
+            >
+              <label className="text-sm text-gray-600 whitespace-nowrap">Feedback:</label>
+              <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                {([
+                  { value: false, label: 'All' },
+                  { value: true, label: 'Needs review' },
+                ] as const).map((option) => (
+                  <button
+                    key={option.label}
+                    onClick={() => onNeedsReviewChange(option.value)}
+                    className={`
+                      px-3 py-1.5 text-sm rounded-md transition-colors
+                      ${needsReviewOnly === option.value
+                        ? 'bg-white text-gray-900 shadow-sm'
+                        : 'text-gray-600 hover:bg-indigo-50 hover:text-indigo-900'
+                      }
+                    `}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          )}
+        </div>
+      )}
 
       {/* Save Filter Modal */}
       <SaveFilterModal

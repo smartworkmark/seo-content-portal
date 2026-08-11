@@ -1,7 +1,7 @@
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, Severity, ApprovalStatus, RecommendationType, Classification, SkipReason, KwBuildoutRecord, KwBuildoutKeyword, Confidence } from '@/types';
 import { getMockData, resetMockData } from './mock-data';
 import { filterGAdsPacing, isValidUrl } from '@/lib/utils';
-import { currentMonthPausedGAdsPacing, needsApproval } from './g-ads-pacing';
+import { currentMonthPausedGAdsPacing, lastMonthGAdsPacing, needsApproval } from './g-ads-pacing';
 import { isAllocatable, isEligible } from './budget-allocation';
 
 // Check if Google Sheets credentials are configured
@@ -884,6 +884,11 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       gAdsPacing,
       Array.from(budgetStatuses.values()),
     );
+    // Closing spend for the previous calendar month — one row per account, so it costs about the
+    // same as the paused snapshot. Must read the FULL array (the 7-day slice above excludes every
+    // last-month run) and must run after applyBudgetConfigs so the clones carry pauseDates and
+    // accountLatestRunDate.
+    const lastMonthPacing = lastMonthGAdsPacing(gAdsPacing);
 
     // Extract unique practices and accounts (include practices from errors, neg keywords, and pacing too)
     const practices = [...new Set([
@@ -905,6 +910,7 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
       negKeywordReviews,
       gAdsPacing: recentGAdsPacing,
       pausedGAdsPacing,
+      lastMonthGAdsPacing: lastMonthPacing,
       kwBuildout,
       summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing, kwBuildout),
       practices,

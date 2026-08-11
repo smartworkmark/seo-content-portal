@@ -36,6 +36,7 @@ interface UseContentDataReturn {
   filteredNegKeywords: NegKeywordReview[];
   filteredGAdsPacing: GAdsPacingRecord[];
   filteredPausedGAdsPacing: GAdsPacingRecord[];
+  filteredLastMonthGAdsPacing: GAdsPacingRecord[];
   filteredKwBuildout: KwBuildoutRecord[];
   filterCounts: { blogs: number; gmbPosts: number; replies: number; negKeywords: number; gAdsPacing: number; kwBuildout: number };
   clientSummary: SummaryData | null;
@@ -122,6 +123,14 @@ export function useContentData(
       )
     : [];
 
+  // Practice filter only, no date filter: the period is fixed server-side by lastMonthGAdsPacing,
+  // and the tab's 1/3/7-day pills would exclude every row. Same shape as the paused snapshot.
+  const filteredLastMonthGAdsPacing = data
+    ? (data.lastMonthGAdsPacing ?? []).filter(
+        (record) => selectedPractices.length === 0 || selectedPractices.includes(record.practiceName),
+      )
+    : [];
+
   const filteredKwBuildout = data
     ? filterKwBuildout(data.kwBuildout, selectedPractices, selectedDateRange)
     : [];
@@ -194,6 +203,9 @@ export function useContentData(
           ? { ...r, approvalStatus: payload.approvalStatus, reviewedBy: payload.reviewedBy, notes: payload.notes }
           : r
       );
+      // lastMonthGAdsPacing is deliberately not patched: it matches on r.id
+      // (`${runDate}|${googleAdsId}`), and a closed-month row's id can never equal a current
+      // row's, so including it would be a no-op that only looks like coverage.
       return {
         ...prev,
         gAdsPacing: updateRows(prev.gAdsPacing),
@@ -260,6 +272,12 @@ export function useContentData(
             }
           : r
       );
+      // lastMonthGAdsPacing is deliberately NOT patched here. This matcher keys on googleAdsId,
+      // so it WOULD hit those rows — rewriting a closed month's roster and budgetDollars with
+      // today's allocation until the next hourly sync. pausedGAdsPacing is safe to patch because
+      // it holds each account's LATEST record; the last-month array holds a closed one. The
+      // Last month view exposes neither the allocation card nor the feedback form, so nothing
+      // goes stale by omitting it.
       return {
         ...prev,
         gAdsPacing: updateRows(prev.gAdsPacing),
@@ -352,6 +370,7 @@ export function useContentData(
     filteredNegKeywords,
     filteredGAdsPacing,
     filteredPausedGAdsPacing,
+    filteredLastMonthGAdsPacing,
     filteredKwBuildout,
     filterCounts,
     clientSummary,

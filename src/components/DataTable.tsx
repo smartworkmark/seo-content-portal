@@ -6,7 +6,9 @@ import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils'
 import { FEATURE_CONFIG } from '@/lib/features';
 import { accountPausedDate, actionDotCounts, allCampaignsPaused, DISPLAY_STATUS_PAUSED_STYLE, displayStatusPill, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, fmtSpendShareOfBudget, hasAppliedChange, isCampaignEnabled, isPausedOnRunDate, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
 import { confidenceMix, reviewCounts, totalConversions } from '@/lib/kw-buildout';
+import type { PacingView } from '@/lib/g-ads-pacing';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
+import { GAdsPacingLastMonthPanel } from './GAdsPacingLastMonthPanel';
 import { KwBuildoutDetailPanel } from './KwBuildoutDetailPanel';
 import type { GAdsPacingFeedbackPayload, BudgetAllocationPayload } from '@/hooks/useContentData';
 import { TableSkeleton } from './SkeletonLoader';
@@ -24,7 +26,9 @@ interface DataTableProps {
   gmbPostErrors?: GmbPostError[];
   negKeywordReviews?: NegKeywordReview[];
   gAdsPacing?: GAdsPacingRecord[];
-  isPausedView?: boolean;
+  pacingView?: PacingView;
+  // "July 2026" — only used by the Last month view's empty state.
+  periodLabel?: string;
   kwBuildout?: KwBuildoutRecord[];
   featureFilters?: FeatureFilters;
   onFeatureToggle?: (feature: string) => void;
@@ -208,7 +212,8 @@ export function DataTable({
   gmbPostErrors = [],
   negKeywordReviews = [],
   gAdsPacing = [],
-  isPausedView = false,
+  pacingView = 'daily',
+  periodLabel = '',
   kwBuildout = [],
   featureFilters = {},
   onFeatureToggle,
@@ -229,15 +234,21 @@ export function DataTable({
     setExpandedBlogRow(null);
     setExpandedGAdsRow(null);
     setExpandedKwRow(null);
-    // G Ads Pacing's date field is `runDate`, not the shared `date` default — set it explicitly so newest stays on top.
+    // G Ads Pacing's date field is `runDate`, not the shared `date` default — set it explicitly so
+    // newest stays on top. Last month sorts by spend instead: it's a spend review, and nearly every
+    // row shares the same closing date, so the date column would order nothing.
     if (contentType === 'g-ads-pacing') {
-      setSort({ column: isPausedView ? 'pausedDate' : 'runDate', direction: 'desc' });
+      setSort(
+        pacingView === 'last-month' ? { column: 'spendMtd', direction: 'desc' }
+        : pacingView === 'paused' ? { column: 'pausedDate', direction: 'desc' }
+        : { column: 'runDate', direction: 'desc' },
+      );
     }
     // Keyword Buildout sorts by `loggedAt`, not the shared `date` default.
     if (contentType === 'kw-buildout') {
       setSort({ column: 'loggedAt', direction: 'desc' });
     }
-  }, [contentType, isErrorMode, isPausedView]);
+  }, [contentType, isErrorMode, pacingView]);
 
   // Reset page when data length changes (e.g. feature filters applied that reduce total pages)
   useEffect(() => {
@@ -829,6 +840,208 @@ export function DataTable({
     );
   }
 
+  // Render G Ads Pacing — Last month closing spend.
+  // A dedicated branch rather than ternaries inside the daily table: the column set is different
+  // (no Mode/Actions/Feedback), it carries a totals footer, and it doesn't paginate. Threading all
+  // of that through the block below would bury it in nested conditionals.
+  if (contentType === 'g-ads-pacing' && pacingView === 'last-month') {
+    const sortedData = sort.column === 'displayStatus'
+      ? [...gAdsPacing].sort((a, b) => {
+          const diff = displayStatusRank(a) - displayStatusRank(b);
+          return sort.direction === 'asc' ? diff : -diff;
+        })
+      : sort.column === 'spendShare'
+        // Derived like displayStatus — there is no spendShare field to sort on. Accounts with no
+        // budget on file have no meaningful share, so park them last in both directions.
+        ? [...gAdsPacing].sort((a, b) => {
+            const ratio = (r: GAdsPacingRecord) =>
+              r.monthlyBudget > 0 ? r.spendMtd / r.monthlyBudget : Number.NEGATIVE_INFINITY;
+            const aR = ratio(a);
+            const bR = ratio(b);
+            if (aR === Number.NEGATIVE_INFINITY && bR === Number.NEGATIVE_INFINITY) return 0;
+            if (aR === Number.NEGATIVE_INFINITY) return 1;
+            if (bR === Number.NEGATIVE_INFINITY) return -1;
+            return sort.direction === 'asc' ? aR - bR : bR - aR;
+          })
+        : sortData(gAdsPacing, sort.column as keyof GAdsPacingRecord, sort.direction);
+
+    // Totals cover the whole filtered set, not a page — a page-scoped total would be wrong, and a
+    // whole-set total sitting under a 25-row page reads as a mismatch. Hence no pagination here:
+    // the view is one row per account (~330 today), and the point of it is scanning every account
+    // at once, which 14 pages would defeat. The max-h scroller keeps the height bounded. If the
+    // row count grows another order of magnitude, virtualize rather than reintroducing pages.
+    const totalBudget = sortedData.reduce((sum, r) => sum + r.monthlyBudget, 0);
+    const totalSpend = sortedData.reduce((sum, r) => sum + r.spendMtd, 0);
+    const totalShare = fmtSpendShareOfBudget(totalSpend, totalBudget);
+
+    return (
+      <div>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="max-h-[640px] overflow-y-auto overflow-x-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 z-10 bg-gray-50">
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="w-8 pl-3 py-3" />
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('practiceName')} className="flex items-center gap-1 hover:text-gray-900">
+                      Practice <SortIcon column="practiceName" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                    <button onClick={() => handleSort('companyId')} className="flex items-center gap-1 hover:text-gray-900">
+                      HSID <SortIcon column="companyId" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('monthlyBudget')} className="flex items-center gap-1 hover:text-gray-900 ml-auto">
+                      Budget <SortIcon column="monthlyBudget" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('spendMtd')} className="flex items-center gap-1 hover:text-gray-900 ml-auto">
+                      Spend <SortIcon column="spendMtd" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('spendShare')} className="flex items-center gap-1 hover:text-gray-900 ml-auto">
+                      % of Budget <SortIcon column="spendShare" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('variancePercent')} className="flex items-center gap-1 hover:text-gray-900 ml-auto">
+                      Variance <SortIcon column="variancePercent" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('displayStatus')} className="flex items-center gap-1 hover:text-gray-900">
+                      Status at close <SortIcon column="displayStatus" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
+                    <button onClick={() => handleSort('runDate')} className="flex items-center gap-1 hover:text-gray-900">
+                      As of <SortIcon column="runDate" />
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedData.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-16 text-center text-sm text-gray-500">
+                      No pacing runs recorded for {periodLabel || 'last month'}.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedData.map((record) => {
+                    const isExpanded = expandedGAdsRow === record.id;
+                    const status = displayStatusPill(record);
+                    const spendShare = fmtSpendShareOfBudget(record.spendMtd, record.monthlyBudget);
+                    // No row dimming here. The daily view's dim heuristic encodes decision-time
+                    // state (on-track, paused) that no longer applies — every row is equally a
+                    // fact about closed spend.
+                    return (
+                      <Fragment key={record.id}>
+                        <tr
+                          onClick={() => setExpandedGAdsRow(isExpanded ? null : record.id)}
+                          className={`border-b border-gray-100 transition-colors cursor-pointer ${isExpanded ? 'bg-slate-50' : 'hover:bg-gray-50'}`}
+                        >
+                          <td className="w-8 pl-3 py-3">
+                            <span
+                              className="inline-flex items-center justify-center text-gray-400 transition-transform duration-150"
+                              style={{
+                                fontSize: 10,
+                                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                                display: 'inline-block',
+                              }}
+                            >
+                              ▸
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                            {record.practiceName}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                            {record.companyId ? (
+                              <a
+                                href={`${HUBSPOT_URL}${record.companyId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-indigo-600 hover:underline"
+                              >
+                                {record.companyId}
+                              </a>
+                            ) : (
+                              ''
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 text-right whitespace-nowrap">
+                            {fmtMoney(record.monthlyBudget)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right whitespace-nowrap font-medium">
+                            {fmtMoney(record.spendMtd)}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-700 text-right whitespace-nowrap">
+                            {spendShare || <span className="text-gray-400">—</span>}
+                          </td>
+                          <td className={`px-4 py-3 text-sm text-right whitespace-nowrap font-semibold ${variancePercentTone(record.variancePercent)}`}>
+                            {fmtSignedPercent(record.variancePercent)}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`${status.pill} ${status.text}`} style={{
+                              display: 'inline-block',
+                              padding: '3px 10px',
+                              borderRadius: 999,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              letterSpacing: '0.04em',
+                            }}>
+                              {status.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap font-mono">
+                            {fmtCompactDate(record.runDate)}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <GAdsPacingLastMonthPanel record={record} colSpan={9} />
+                        )}
+                      </Fragment>
+                    );
+                  })
+                )}
+              </tbody>
+              {sortedData.length > 0 && (
+                <tfoot className="sticky bottom-0 z-10">
+                  <tr className="bg-gray-50 border-t-2 border-gray-300">
+                    <td className="w-8 pl-3 py-3" />
+                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 whitespace-nowrap" colSpan={2}>
+                      TOTAL — {sortedData.length} {sortedData.length === 1 ? 'account' : 'accounts'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900 whitespace-nowrap">
+                      {fmtMoney(totalBudget)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900 whitespace-nowrap">
+                      {fmtMoney(totalSpend)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-semibold text-gray-900 whitespace-nowrap">
+                      {totalShare || <span className="text-gray-400 font-normal">—</span>}
+                    </td>
+                    {/* Variance, status and as-of have no meaningful aggregate — an average of
+                        variances is not a number anyone should act on. */}
+                    <td className="px-4 py-3" />
+                    <td className="px-4 py-3" />
+                    <td className="px-4 py-3" />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Render G Ads Pacing Table
   if (contentType === 'g-ads-pacing') {
     // The Status column is derived (grace → New, else display_status column, else variance
@@ -865,11 +1078,11 @@ export function DataTable({
                   <th className="w-8 pl-3 py-3" />
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
                     <button
-                      onClick={() => handleSort(isPausedView ? 'pausedDate' : 'runDate')}
+                      onClick={() => handleSort((pacingView === 'paused') ? 'pausedDate' : 'runDate')}
                       className="flex items-center gap-1 hover:text-gray-900"
                     >
-                      {isPausedView ? 'Date Paused' : 'Date'}{' '}
-                      <SortIcon column={isPausedView ? 'pausedDate' : 'runDate'} />
+                      {(pacingView === 'paused') ? 'Date Paused' : 'Date'}{' '}
+                      <SortIcon column={(pacingView === 'paused') ? 'pausedDate' : 'runDate'} />
                     </button>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -916,7 +1129,7 @@ export function DataTable({
                 {paginatedData.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="px-4 py-16 text-center text-sm text-gray-500">
-                      {isPausedView
+                      {(pacingView === 'paused')
                         ? 'No paused practices found.'
                         : 'No pacing records found for the selected filters.'}
                     </td>
@@ -924,10 +1137,10 @@ export function DataTable({
                 ) : (
                   paginatedData.map((record) => {
                     const isExpanded = expandedGAdsRow === record.id;
-                    const status = isPausedView
+                    const status = (pacingView === 'paused')
                       ? DISPLAY_STATUS_PAUSED_STYLE
                       : displayStatusPill(record);
-                    const pausedDate = isPausedView ? accountPausedDate(record) : '';
+                    const pausedDate = (pacingView === 'paused') ? accountPausedDate(record) : '';
                     // Only ENABLED campaigns can surface an action — a hidden (PAUSED) campaign
                     // must not produce a stale dot.
                     const dots = actionDotCounts(record.campaigns.filter(isCampaignEnabled), record.approvalStatus);
@@ -935,7 +1148,7 @@ export function DataTable({
                     // "On track" pill (and dim the row) when nothing actually moved the live budget.
                     const onTrack = record.accountOnTrack && !hasAppliedChange(record);
                     // A fully cap-paused account is inert, like the existing paused/on-track states.
-                    const dim = (isPausedView || isPausedOnRunDate(record) || allCampaignsPaused(record) || onTrack) && !isExpanded;
+                    const dim = ((pacingView === 'paused') || isPausedOnRunDate(record) || allCampaignsPaused(record) || onTrack) && !isExpanded;
                     // Share of the month's budget spent so far, annotating the dollar figure.
                     const spendShare = fmtSpendShareOfBudget(record.spendMtd, record.monthlyBudget);
                     return (
@@ -957,7 +1170,7 @@ export function DataTable({
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-700 whitespace-nowrap font-mono">
-                            {isPausedView
+                            {(pacingView === 'paused')
                               ? (pausedDate ? fmtCompactDate(pausedDate) : '—')
                               : fmtCompactDate(record.runDate)}
                           </td>
@@ -1026,11 +1239,13 @@ export function DataTable({
                             )}
                           </td>
                         </tr>
+                        {/* The daily panel keeps a boolean prop: it's a binary pill choice, and this
+                            panel is never rendered in the Last month view (that has its own). */}
                         {isExpanded && onSubmitGAdsFeedback && onSubmitBudget && (
                           <GAdsPacingDetailPanel
                             record={record}
                             colSpan={10}
-                            isPausedView={isPausedView}
+                            isPausedView={pacingView === 'paused'}
                             onSubmit={onSubmitGAdsFeedback}
                             onSubmitBudget={onSubmitBudget}
                           />

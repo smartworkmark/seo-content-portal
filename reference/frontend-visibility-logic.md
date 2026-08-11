@@ -13,17 +13,25 @@ only thing the frontend writes is a webhook payload (feedback, budget allocation
 
 ## 1. What reaches the browser at all
 
-Server-side, in `getContentData()` ([google-sheets.ts:846-874](../src/lib/google-sheets.ts#L846-L874)):
+Server-side, in `fetchAllContent()` ([google-sheets.ts:879-891](../src/lib/google-sheets.ts#L879-L891)):
 
 | Payload | Contents | Why |
 |---|---|---|
 | `gAdsPacing` | `filterGAdsPacing(all, [], '7d')` — last 7 days of run dates | The normal UI only offers 1d/3d/7d pills, so shipping more is dead weight |
 | `pausedGAdsPacing` | `currentMonthPausedGAdsPacing(...)` — **one row per account** with a pause event this calendar month | Paused campaigns disappear from later pacing runs, so the current month's pause events can't be reconstructed from the 7-day window |
+| `lastMonthGAdsPacing` | `lastMonthGAdsPacing(all)` — **one row per account**: its newest run whose `runDate` falls in the previous calendar month | The sheet has no month-close column (every spend field is `*_mtd` as of that run), so an account's last in-month run *is* its closing spend. The 7-day slice puts a closed month permanently out of reach otherwise |
 
 Records are sorted `runDate desc` before slicing. **A pause event older than 7 days is visible
 only in the paused view** — it has no row in normal history.
 
-`applyBudgetConfigs()` runs before both, joining onto every record:
+All three reducers run over the **full** parsed array, after `applyBudgetConfigs()`. The two
+one-row-per-account snapshots are cheap (~330 rows each today) next to the 7-day slice.
+
+The last-month row's own `runDate` is the honest **"as of"** date and is displayed as such: real
+data has accounts whose last July run was the 13th or the 23rd, and those rows are genuinely
+partial. Never extrapolate them or hide them.
+
+`applyBudgetConfigs()` runs before all three, joining onto every record:
 - `budgetConfig` (from `Campaign Budgets`, tombstoned `active=FALSE` rows skipped)
 - per-campaign `budgetDollars`, `sharedBudget`, `effectiveMode`, `statusReason`, `paused`, `pausedDate`
 - account rollup `effectiveMode` / `statusReason`
@@ -39,7 +47,7 @@ and the CSV export**.
 ```
 data.gAdsPacing
   └─ 1. useContentData    filterGAdsPacing(practices, dateRange)   → filteredGAdsPacing
-      └─ 2. page.tsx      paused-view swap                          → baseGAdsPacing
+      └─ 2. page.tsx      3-way view swap (daily/paused/last-month) → baseGAdsPacing
           └─ 3. page.tsx  status filter                             → statusFilteredGAdsPacing
               └─ 4.       mode filter                               → modeFilteredGAdsPacing
                   └─ 5.   "Needs review" toggle                     → reviewFilteredGAdsPacing ★
@@ -50,9 +58,18 @@ data.gAdsPacing
 **1. Practice + date** ([utils.ts:180](../src/lib/utils.ts#L180)) — practice matches on
 `practiceName`; date on `runDate`. Empty practice array = all.
 
-**2. Paused view** — `isPausedView` swaps the source array to `filteredPausedGAdsPacing`.
-Passes 3–5 are **bypassed, not cleared**: the operator's status/mode/review selections survive and
-reapply when they leave the view. The Practice filter stays active.
+**2. View swap** — `pacingView: 'daily' | 'paused' | 'last-month'` selects the source array
+(`filteredGAdsPacing` / `filteredPausedGAdsPacing` / `filteredLastMonthGAdsPacing`). A union rather
+than a pair of booleans, so "paused AND last-month" isn't representable.
+
+In **both** non-daily views, passes 3–5 are **bypassed, not cleared**: the operator's status /
+mode / review selections survive and reapply on return to Daily. The Practice filter stays active
+in all three. Neither alternate view honors the date pills — both are scoped server-side — so the
+pills are replaced with a static period chip (`This Month` / `July 2026`) and `selectedDateRange`
+is left untouched.
+
+The last-month view also drops the Mode, Actions and Feedback **columns** and uses its own detail
+panel; see §11.
 
 **3. Status** — matches `resolveDisplayStatus(r)` against `selectedStatuses`. Only the five
 variance tiers are selectable, so `null` ("New"), `Paused`, and `Paused (cap reached)` rows **drop
@@ -103,8 +120,8 @@ same severity are the same color on purpose.
 
 Sorting is special-cased on `sort.column === 'displayStatus'` → `displayStatusRank()`, because the
 value is derived rather than a raw field. New sorts second-to-last, Paused last, cap-paused after
-that. CSV export augments each row with `status: isPausedView ? 'Paused' : (resolve(r) ?? 'New')`
-([page.tsx:133](../src/app/page.tsx#L133)).
+that. CSV export augments each row with
+`status: pacingView === 'paused' ? 'Paused' : (resolve(r) ?? 'New')` ([page.tsx](../src/app/page.tsx)).
 
 ---
 
@@ -391,3 +408,50 @@ cap-paused account). Both are already in `STATUS_REASON_LABELS`
   and over-fetching is free — but a too-narrow range silently drops columns past the boundary.
 - **Auto re-sync** every hour (3,600,000 ms), so any "pending re-evaluation" state clears without
   a manual refresh.
+
+---
+
+## 11. Last month view (closing spend)
+
+Reached from the pacing-view segmented control (`Daily | Paused practices (N) | Last month (M)`).
+Period is **always the previous calendar month** — no picker. Rolls the year back in January.
+
+**What it shows.** One row per account, spend-focused:
+`▸ | Practice | HSID | Budget | Spend | % of Budget | Variance % | Status at close | As of`.
+
+- Mode, Actions and Feedback are **dropped**. Each describes a decision made on one specific day;
+  on a closed month they are noise at best, actionable-looking at worst.
+- **No row dimming.** The daily view's dim heuristic (on-track / paused) encodes decision-time
+  state that no longer applies — every row here is equally a fact about closed spend.
+- **Status at close** uses the ordinary `resolveDisplayStatus(record)`, no override. The resolver
+  is already date-correct: `isPausedOnRunDate` matches that row's own run date.
+- **Default sort is `spendMtd desc`**, not `runDate` — it's a spend review, and nearly every row
+  shares the same closing date. `% of Budget` is derived, so like `displayStatus` it needs a
+  special-cased comparator; `$0`-budget accounts park last in **both** directions.
+- **`TOTAL — N accounts` footer** covers the **whole filtered set**, not a page. Budget and spend
+  sum; % of budget is `totalSpend / totalBudget`; variance, status and as-of are left blank (an
+  average of variances is not a number anyone should act on).
+- **No pagination**, deliberately: ~330 rows today, and the point is scanning every account at
+  once, which 14 pages of 25 would defeat. Virtualize before reintroducing pages.
+
+**Detail panel is a separate component** (`GAdsPacingLastMonthPanel`), not a flag on
+`GAdsPacingDetailPanel`. Two reasons:
+
+1. **Safety.** The daily panel's feedback form is gated only on grace / `accountOnTrack` /
+   `needsApproval` — *not* on the stale-roster check that guards the budget card. Reusing it would
+   let an operator POST a closed month's `run_date` to the Make webhook, writing an approval onto
+   every row of that month.
+2. It shows **every campaign, including non-ENABLED ones** — the opposite of every other pacing
+   surface. A paused campaign's spend still counted toward the account total, so filtering it out
+   would break the reconciliation the panel exists to provide. When campaign spend doesn't sum to
+   the account figure (campaign created/removed mid-month) it says so rather than implying a match.
+
+**Never optimistically patch `lastMonthGAdsPacing`.** `submitBudgetAllocation`'s `updateRows`
+matches on `googleAdsId` and *would* hit these rows, rewriting a closed month's roster and
+allocations with today's config until the next sync. `pausedGAdsPacing` is safe to patch because it
+holds each account's *latest* record; this array holds a *closed* one.
+
+**CSV** exports the same nine columns minus the chevron and the TOTAL row (a totals row inside the
+data breaks sorting and pivoting downstream), to
+`g-ads-pacing-last-month-<YYYY-MM>-<export-date>.csv`. `% of Budget` is blank, not `Infinity%`,
+when the account has no budget on file.
