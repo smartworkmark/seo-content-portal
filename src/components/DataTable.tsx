@@ -4,7 +4,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, GAdsPacingRecord, KwBuildoutRecord, KwBuildoutApprovedKey, BlogError, GmbPostError, ContentType, ErrorContentType, SortState, FeatureFilters } from '@/types';
 import { formatDate, formatDateTime, truncateText, sortData } from '@/lib/utils';
 import { FEATURE_CONFIG } from '@/lib/features';
-import { accountPausedDate, actionDotCounts, allCampaignsPaused, DISPLAY_STATUS_PAUSED_STYLE, displayStatusPill, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, hasAppliedChange, isCampaignEnabled, isPausedOnRunDate, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
+import { accountPausedDate, actionDotCounts, allCampaignsPaused, DISPLAY_STATUS_PAUSED_STYLE, displayStatusPill, displayStatusRank, fmtCompactDate, fmtMoney, fmtSignedPercent, fmtSpendShareOfBudget, hasAppliedChange, isCampaignEnabled, isPausedOnRunDate, needsApproval, variancePercentTone } from '@/lib/g-ads-pacing';
 import { confidenceMix, reviewCounts, totalConversions } from '@/lib/kw-buildout';
 import { GAdsPacingDetailPanel } from './GAdsPacingDetailPanel';
 import { KwBuildoutDetailPanel } from './KwBuildoutDetailPanel';
@@ -936,6 +936,8 @@ export function DataTable({
                     const onTrack = record.accountOnTrack && !hasAppliedChange(record);
                     // A fully cap-paused account is inert, like the existing paused/on-track states.
                     const dim = (isPausedView || isPausedOnRunDate(record) || allCampaignsPaused(record) || onTrack) && !isExpanded;
+                    // Share of the month's budget spent so far, annotating the dollar figure.
+                    const spendShare = fmtSpendShareOfBudget(record.spendMtd, record.monthlyBudget);
                     return (
                       <Fragment key={record.id}>
                         <tr
@@ -990,6 +992,9 @@ export function DataTable({
                           </td>
                           <td className="px-4 py-3 text-sm text-gray-900 text-right whitespace-nowrap font-medium">
                             {fmtMoney(record.spendMtd)}
+                            {spendShare && (
+                              <span className="ml-1.5 font-normal text-gray-400">[{spendShare}]</span>
+                            )}
                           </td>
                           <td className={`px-4 py-3 text-sm text-right whitespace-nowrap font-semibold ${variancePercentTone(record.variancePercent)}`}>
                             {fmtSignedPercent(record.variancePercent)}
