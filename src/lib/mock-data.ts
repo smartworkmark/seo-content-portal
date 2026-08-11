@@ -1,5 +1,5 @@
 import { BlogPost, GmbPost, GmbReply, NegKeywordReview, BlogError, GmbPostError, ContentResponse, ErrorSummaryData, GAdsPacingRecord, GAdsPacingCampaign, RecommendationType, Severity, Classification, SkipReason } from '@/types';
-import { currentMonthPausedGAdsPacing, displayStatusFromVariance } from '@/lib/g-ads-pacing';
+import { currentMonthPausedGAdsPacing, displayStatusFromVariance, lastMonthGAdsPacing } from '@/lib/g-ads-pacing';
 
 // Sample practice names
 const practices = [
@@ -618,14 +618,132 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
   });
 }
 
+// Prior-month pacing history, so the Last month view is exercisable on the mock fallback path
+// (which is what runs whenever Sheets is unconfigured OR rate-limited — i.e. most local testing).
+// generateGAdsPacing only ever emits rows inside the last 7 days, so without this the view is
+// empty. Real history comes from the append-only sheet.
+function generatePriorMonthGAdsPacing(current: GAdsPacingRecord[]): GAdsPacingRecord[] {
+  const today = new Date();
+  // Day 0 of the current month is the last day of the previous month — correct across the
+  // January boundary, where it yields December 31 of the prior year.
+  const lastDayPrev = new Date(today.getFullYear(), today.getMonth(), 0);
+  const prevYear = lastDayPrev.getFullYear();
+  const prevMonth = lastDayPrev.getMonth();
+  const daysInPrev = lastDayPrev.getDate();
+  const dateKey = (day: number) =>
+    `${prevYear}-${String(prevMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  const buildRow = (
+    source: GAdsPacingRecord,
+    i: number,
+    day: number,
+    monthlyBudget: number,
+    spend: number,
+    dropLastCampaign: boolean,
+  ): GAdsPacingRecord => {
+    const runDate = dateKey(day);
+    const expected = monthlyBudget * (day / daysInPrev);
+    const variance = expected > 0 ? Math.round(((spend - expected) / expected) * 100) : 0;
+
+    // Deep-clone: sharing campaign objects with the current-month rows would let a mutation in
+    // one view surface in the other.
+    const campaigns = source.campaigns.map((c) => ({
+      ...c,
+      // Pause state is current-month runtime state and must not be projected onto a closed
+      // month. campaignStatus is kept on the trailing campaign of some accounts so the panel's
+      // "paused" tag (and the all-campaigns-shown rule) stays exercised.
+      paused: false,
+      pausedDate: '',
+    }));
+    if (dropLastCampaign && campaigns.length > 1) campaigns.pop();
+    if (i % 6 === 0 && campaigns.length > 1) {
+      campaigns[campaigns.length - 1].campaignStatus = 'PAUSED';
+    }
+
+    const sourceTotal = campaigns.reduce((sum, c) => sum + c.spendMtd, 0);
+    campaigns.forEach((c) => {
+      c.spendMtd = sourceTotal > 0
+        ? Math.round(spend * (c.spendMtd / sourceTotal))
+        : Math.round(spend / campaigns.length);
+      // A closed month has no pending decision to describe.
+      c.recommendationType = 'NO_CHANGE';
+      c.skipReason = '';
+      c.finalDailyBudget = null;
+    });
+
+    return {
+      ...source,
+      id: `${runDate}|${source.googleAdsId}`,
+      runDate,
+      pauseDates: [],
+      runId: `mock-prior-${i}-${day}`,
+      monthlyBudget,
+      spendMtd: spend,
+      expectedSpendMtd: Math.round(expected),
+      variancePercent: variance,
+      severity: 'OK',
+      // Seed the column on even accounts, blank on odd, so both the column path and the
+      // variance fallback are exercised in this view too.
+      displayStatus: i % 2 === 0 ? displayStatusFromVariance(variance) : '',
+      approvalStatus: '',
+      reviewedBy: '',
+      notes: '',
+      campaigns,
+      // The account's CURRENT run date, so a last-month row is correctly stale-gated — the one
+      // path mock data could never reach before (every mock account had a single record).
+      accountLatestRunDate: source.runDate,
+    };
+  };
+
+  const rows: GAdsPacingRecord[] = [];
+
+  current.forEach((source, i) => {
+    // A few accounts started this month and have no prior-month history at all.
+    if (i % 17 === 3) return;
+
+    // One $0-budget account: exercises fmtSpendShareOfBudget returning '' (renders as a dash,
+    // sorts last, and must not poison the TOTAL denominator).
+    const monthlyBudget = i === 4 ? 0 : source.monthlyBudget;
+    // Closing spend spans roughly 62%–127% of budget so every status tier appears.
+    const closingSpend = Math.round(monthlyBudget * (0.62 + ((i * 7) % 66) / 100));
+    // Campaign spend that doesn't reconcile with the account total (campaign removed mid-month)
+    // — the detail panel's reconciliation note exists for exactly this.
+    const dropLastCampaign = i % 11 === 2;
+
+    if (i % 13 === 5) {
+      // Data gap: the agent stopped running mid-month. The row is genuinely partial, and the
+      // "as of 07/15" column is what makes that visible instead of silently under-reporting.
+      rows.push(buildRow(source, i, 15, monthlyBudget, Math.round(closingSpend * 0.5), dropLastCampaign));
+      return;
+    }
+
+    // Two rows per account proves the builder picks the NEWEST in-month run, not the first.
+    rows.push(buildRow(source, i, 15, monthlyBudget, Math.round(closingSpend * 0.48), dropLastCampaign));
+    rows.push(buildRow(source, i, daysInPrev, monthlyBudget, closingSpend, dropLastCampaign));
+  });
+
+  // Accounts that existed last month but not this one — they must still appear in the view.
+  current.slice(0, 3).forEach((source, k) => {
+    const googleAdsId = `${2000000000 + k}`;
+    const closed: GAdsPacingRecord = { ...source, googleAdsId };
+    rows.push(buildRow(closed, 100 + k, daysInPrev, source.monthlyBudget, Math.round(source.monthlyBudget * 0.91), false));
+  });
+
+  return rows;
+}
+
 // Generate complete mock data
 export function generateMockData(): ContentResponse {
   const blogs = generateBlogs(250);
   const gmbPosts = generateGmbPosts(350);
   const replies = generateReplies(180);
   const negKeywordReviews = generateNegKeywordReviews(400);
-  const gAdsPacing = generateGAdsPacing(40);
-  const pauseStatuses = gAdsPacing.flatMap((record) =>
+  const currentGAdsPacing = generateGAdsPacing(40);
+  const gAdsPacing = [...currentGAdsPacing, ...generatePriorMonthGAdsPacing(currentGAdsPacing)];
+  // Built from the current-month rows only. currentMonthPausedGAdsPacing would filter prior-month
+  // pause dates out by its own month predicate anyway, but sourcing narrowly keeps the paused
+  // view's membership provably unchanged by this addition.
+  const pauseStatuses = currentGAdsPacing.flatMap((record) =>
     record.campaigns.map((campaign) => ({
       campaignId: campaign.campaignId,
       googleAdsId: record.googleAdsId,
@@ -643,6 +761,7 @@ export function generateMockData(): ContentResponse {
     negKeywordReviews,
     gAdsPacing,
     pausedGAdsPacing: currentMonthPausedGAdsPacing(gAdsPacing, pauseStatuses),
+    lastMonthGAdsPacing: lastMonthGAdsPacing(gAdsPacing),
     kwBuildout: [],
     summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing),
     practices: [...new Set([

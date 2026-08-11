@@ -2,7 +2,17 @@
 
 import { useState, useEffect } from 'react';
 import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview } from '@/types';
-import { accountPausedDate, needsApproval, resolveDisplayStatus, type StatusFilter } from '@/lib/g-ads-pacing';
+import {
+  accountPausedDate,
+  fmtSpendShareOfBudget,
+  monthLabelFromDate,
+  needsApproval,
+  previousMonthLabel,
+  previousMonthSlug,
+  resolveDisplayStatus,
+  type PacingView,
+  type StatusFilter,
+} from '@/lib/g-ads-pacing';
 import { flagsList } from '@/lib/kw-buildout';
 import { useContentData } from '@/hooks/useContentData';
 import { useTableHeaderObserver } from '@/hooks/useTableHeaderObserver';
@@ -45,7 +55,7 @@ export default function Dashboard() {
   const [selectedStatuses, setSelectedStatuses] = useState<StatusFilter[]>([]);
   const [selectedModes, setSelectedModes] = useState<Array<'account' | 'campaign'>>([]);
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
-  const [isPausedView, setIsPausedView] = useState(false);
+  const [pacingView, setPacingView] = useState<PacingView>('daily');
   const [selectedConfidences, setSelectedConfidences] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
@@ -71,6 +81,7 @@ export default function Dashboard() {
     filteredNegKeywords,
     filteredGAdsPacing,
     filteredPausedGAdsPacing,
+    filteredLastMonthGAdsPacing,
     filteredKwBuildout,
     filterCounts,
     filteredBlogErrors,
@@ -125,16 +136,37 @@ export default function Dashboard() {
         { key: 'campaignName', label: 'Campaign' },
         { key: 'termsReviewed', label: 'Terms Reviewed' },
       ]);
+    } else if (activeTab === 'g-ads-pacing' && pacingView === 'last-month') {
+      // Closed-month spend report. Mode/Actions/Feedback are omitted for the same reason the
+      // table drops them: they describe a decision made on a specific day. The TOTAL row is
+      // deliberately not exported — a totals row inside the data breaks sorting and pivoting.
+      const lastMonthForExport = reviewFilteredGAdsPacing.map((r) => ({
+        ...r,
+        status: resolveDisplayStatus(r) ?? 'New',
+        // Blank rather than "Infinity%" when the account has no budget on file.
+        percentOfBudget: fmtSpendShareOfBudget(r.spendMtd, r.monthlyBudget),
+      }));
+      exportToCSV(lastMonthForExport, `g-ads-pacing-last-month-${previousMonthSlug()}`, [
+        { key: 'practiceName', label: 'Practice' },
+        { key: 'companyId', label: 'HSID' },
+        { key: 'googleAdsId', label: 'Google Ads ID' },
+        { key: 'monthlyBudget', label: 'Budget' },
+        { key: 'spendMtd', label: 'Spend' },
+        { key: 'percentOfBudget', label: '% of Budget' },
+        { key: 'variancePercent', label: 'Variance %' },
+        { key: 'status', label: 'Status at Close' },
+        { key: 'runDate', label: 'As Of' },
+      ]);
     } else if (activeTab === 'g-ads-pacing') {
       // Attach the resolved client-facing status so the CSV matches the on-screen label
       // (severity is intentionally omitted — it's an internal signal now).
       const pacingForExport = reviewFilteredGAdsPacing.map((r) => ({
         ...r,
-        status: isPausedView ? 'Paused' : (resolveDisplayStatus(r) ?? 'New'),
+        status: pacingView === 'paused' ? 'Paused' : (resolveDisplayStatus(r) ?? 'New'),
         pausedDate: accountPausedDate(r),
       }));
       exportToCSV(pacingForExport, 'g-ads-pacing', [
-        isPausedView
+        pacingView === 'paused'
           ? { key: 'pausedDate', label: 'Date Paused' }
           : { key: 'runDate', label: 'Run Date' },
         { key: 'practiceName', label: 'Practice' },
@@ -208,9 +240,12 @@ export default function Dashboard() {
   // filtered pacing records. Empty selection = show all. Every row resolves to a tier via the
   // resolver (grace rows resolve to null "New" and drop out when a specific tier is selected).
   // Paused view bypasses this filter without clearing the user's normal-view selection.
-  const baseGAdsPacing = isPausedView ? filteredPausedGAdsPacing : filteredGAdsPacing;
+  const baseGAdsPacing =
+    pacingView === 'paused' ? filteredPausedGAdsPacing
+    : pacingView === 'last-month' ? filteredLastMonthGAdsPacing
+    : filteredGAdsPacing;
 
-  const statusFilteredGAdsPacing = isPausedView || selectedStatuses.length === 0
+  const statusFilteredGAdsPacing = pacingView !== 'daily' || selectedStatuses.length === 0
     ? baseGAdsPacing
     : baseGAdsPacing.filter((r) => {
         const tier = resolveDisplayStatus(r);
@@ -224,16 +259,24 @@ export default function Dashboard() {
       });
 
   // Mode filter — composed on top of the status filter. Empty selection = show all.
-  const modeFilteredGAdsPacing = isPausedView || selectedModes.length === 0
+  const modeFilteredGAdsPacing = pacingView !== 'daily' || selectedModes.length === 0
     ? statusFilteredGAdsPacing
     : statusFilteredGAdsPacing.filter((r) => selectedModes.includes(r.effectiveMode));
 
   // Feedback filter — "Needs review" narrows to accounts awaiting feedback (same definition as
   // the table's Feedback column). This is the most-derived pacing variable; it feeds both the
   // table and CSV export.
-  const reviewFilteredGAdsPacing = isPausedView || !needsReviewOnly
+  const reviewFilteredGAdsPacing = pacingView !== 'daily' || !needsReviewOnly
     ? modeFilteredGAdsPacing
     : modeFilteredGAdsPacing.filter((r) => r.approvalStatus === '' && needsApproval(r));
+
+  // Period label for the Last month view — one computation site, shared by the Filters chip and
+  // the table's empty state so they can never disagree. Derived from the data first: this is a
+  // Client Component but Next still SSRs it, and a purely clock-derived label could hydration-
+  // mismatch across a month boundary when server and browser timezones differ. The clock
+  // fallback only runs when there are no rows.
+  const lastMonthLabel =
+    monthLabelFromDate(filteredLastMonthGAdsPacing[0]?.runDate ?? '') || previousMonthLabel();
 
   // Confidence filter — applied as a final pass on top of practice+date filtered records.
   // A batch is kept if any of its keywords match a selected confidence. Empty = show all.
@@ -266,7 +309,7 @@ export default function Dashboard() {
       setSelectedStatuses([]);
       setSelectedModes([]);
       setNeedsReviewOnly(false);
-      setIsPausedView(false);
+      setPacingView('daily');
     }
     if (tab !== 'kw-buildout') setSelectedConfidences([]);
   };
@@ -443,9 +486,11 @@ export default function Dashboard() {
               onModesChange={setSelectedModes}
               needsReviewOnly={needsReviewOnly}
               onNeedsReviewChange={setNeedsReviewOnly}
-              isPausedView={isPausedView}
-              onPausedViewChange={setIsPausedView}
+              pacingView={pacingView}
+              onPacingViewChange={setPacingView}
               pausedCount={filteredPausedGAdsPacing.length}
+              lastMonthCount={filteredLastMonthGAdsPacing.length}
+              periodLabel={lastMonthLabel}
               selectedConfidences={selectedConfidences}
               onConfidencesChange={setSelectedConfidences}
             />
@@ -485,7 +530,8 @@ export default function Dashboard() {
             replies={filteredReplies}
             negKeywordReviews={filteredNegKeywords}
             gAdsPacing={reviewFilteredGAdsPacing}
-            isPausedView={isPausedView}
+            pacingView={pacingView}
+            periodLabel={lastMonthLabel}
             kwBuildout={confidenceFilteredKwBuildout}
             isLoading={isLoading}
             isErrorMode={showErrors}

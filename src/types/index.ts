@@ -284,6 +284,10 @@ export interface ContentResponse {
   negKeywordReviews: NegKeywordReview[];
   gAdsPacing: GAdsPacingRecord[];
   pausedGAdsPacing: GAdsPacingRecord[];
+  // One closing snapshot per account for the previous calendar month. A separate array because
+  // gAdsPacing is sliced to seven days before it leaves the server, so a closed month is
+  // otherwise unreachable in the browser.
+  lastMonthGAdsPacing: GAdsPacingRecord[];
   kwBuildout: KwBuildoutRecord[];
   summary: SummaryData;
   practices: string[];
