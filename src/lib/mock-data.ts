@@ -445,6 +445,10 @@ function buildCampaign(
     // Live Google Ads state. Default ENABLED; the paused-seeding block below flips the
     // campaigns it pauses to 'PAUSED' so campaign_status tracks paused_by_agent in mock.
     campaignStatus: 'ENABLED',
+    // New serving-status column. Default SERVING; the ended-seeding block below flips some
+    // campaigns to 'ENDED' while leaving campaignStatus at 'ENABLED' — matching the real-world
+    // case where Google Ads doesn't flip campaign_status just because serving ended.
+    campaignServingStatus: 'SERVING',
   };
 }
 
@@ -578,6 +582,21 @@ function generateGAdsPacing(count: number): GAdsPacingRecord[] {
       // Paused in Google Ads but NOT paused_by_agent — the two signals are distinct, and the
       // allocation editor must key on campaignStatus.
       campaigns[campaigns.length - 1].campaignStatus = 'PAUSED';
+      // A second, distinct held campaign on the same managed account: ended (not paused),
+      // still campaignStatus ENABLED. Exercises the mixed "N paused, M ended" held summary and
+      // the "ended" denotation in the Budget Allocation card's held-row tag.
+      if (campaigns.length > 2) {
+        campaigns[0].campaignServingStatus = 'ENDED';
+      }
+    } else if (scenario !== 'grace' && i % 6 === 2) {
+      // Every campaign has ended (serving lapsed) while staying campaignStatus ENABLED, so they
+      // remain visible in the campaign breakdown table with the "ended" tag — unlike an
+      // all-paused account (i % 6 === 4), whose campaigns are PAUSED in Google Ads and so are
+      // filtered out of that same table. Also exercises the unmanaged account's "All campaigns
+      // have ended" message.
+      campaigns.forEach((c) => {
+        c.campaignServingStatus = 'ENDED';
+      });
     }
 
     return {

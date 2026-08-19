@@ -11,6 +11,7 @@ import {
   dollarsFromPercent,
   eligibleCampaigns,
   heldBudget,
+  heldReasonLabel,
   isHeld,
   isSaveEnabled,
 } from '@/lib/budget-allocation';
@@ -23,6 +24,8 @@ import {
   appliedStatusLabel,
   displayStatusPill,
   isCampaignEnabled,
+  isCampaignEnded,
+  isEndedWithNoSpend,
   budgetLimitedCount,
   campaignBudgetView,
   changeTone,
@@ -361,7 +364,7 @@ function BudgetAllocationCard({
                         )}
                         {isHeld(c) && (
                           <span className="ml-2 text-[11px] font-normal text-slate-400">
-                            paused — held, not steering
+                            {heldReasonLabel(c)} — held, not steering
                           </span>
                         )}
                       </td>
@@ -412,15 +415,19 @@ function BudgetAllocationCard({
                 Set campaign budgets
               </button>
             ) : (
-              // Three distinct causes, three distinct messages: collapsing "all paused" into
-              // "all shared" would send the operator to Google Ads to fix a budget structure
-              // that isn't the problem.
+              // Distinct causes get distinct messages: collapsing "all paused" into "all shared"
+              // would send the operator to Google Ads to fix a budget structure that isn't the
+              // problem, and "re-enabled" doesn't apply to a campaign that has permanently ended.
               <span className="text-xs text-slate-400">
                 {record.campaigns.length === 0
                   ? 'No campaigns on this account.'
                   : eligible.length === 0
                     ? 'All campaigns are on shared budgets — not eligible.'
-                    : 'All campaigns are paused — allocation is available once one is re-enabled.'}
+                    : held.endedCount > 0 && held.pausedCount === 0
+                      ? 'All campaigns have ended — there’s nothing to allocate to right now.'
+                      : held.endedCount > 0
+                        ? 'Every campaign is paused or has ended — allocation is available once one is re-enabled.'
+                        : 'All campaigns are paused — allocation is available once one is re-enabled.'}
               </span>
             )}
           </div>
@@ -437,10 +444,17 @@ function BudgetAllocationCard({
             <div className="mb-3 rounded-lg bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
               <div className="text-sm font-semibold text-slate-700">No active campaigns</div>
               <div className="mt-1 text-xs leading-relaxed text-slate-600">
-                Every campaign on this account is paused or on a shared budget, so there&apos;s
-                nothing to allocate right now
+                Every campaign on this account is paused, ended, or on a shared budget, so
+                there&apos;s nothing to allocate right now
                 {held.dollars > 0 && (
-                  <> — {fmtMoney(held.dollars)} stays held against the paused campaigns</>
+                  <>
+                    {' '}— {fmtMoney(held.dollars)} stays held against the{' '}
+                    {held.pausedCount > 0 && held.endedCount > 0
+                      ? 'paused and ended campaigns'
+                      : held.endedCount > 0
+                        ? 'ended campaigns'
+                        : 'paused campaigns'}
+                  </>
                 )}
                 . Saved budgets are preserved; you can clear them back to account-level pacing
                 below.
@@ -459,9 +473,9 @@ function BudgetAllocationCard({
               <tbody>
                 {record.campaigns.map((c, i) => {
                   const shared = c.sharedBudget;
-                  // Key on campaign_status via isHeld — never on c.paused (that's
-                  // paused_by_agent from a different sheet) and never on spend (an ENABLED
-                  // campaign with $0 spend is fully allocatable).
+                  // Key on campaign_status/campaign_serving_status via isHeld — never on
+                  // c.paused (that's paused_by_agent from a different sheet) and never on spend
+                  // (an ENABLED, still-serving campaign with $0 spend is fully allocatable).
                   const paused = isHeld(c);
                   const dollarsStr = draft[c.campaignId] ?? '';
                   const dollarsNum = parseFloat(dollarsStr);
@@ -481,8 +495,8 @@ function BudgetAllocationCard({
                         {paused && (
                           <span className="ml-2 text-[11px] font-normal text-slate-400">
                             {c.budgetDollars != null
-                              ? `paused — ${fmtMoney(c.budgetDollars)} held, not steering`
-                              : 'paused — not steering'}
+                              ? `${heldReasonLabel(c)} — ${fmtMoney(c.budgetDollars)} held, not steering`
+                              : `${heldReasonLabel(c)} — not steering`}
                           </span>
                         )}
                       </td>
@@ -549,11 +563,15 @@ function BudgetAllocationCard({
                 </>
               )}
               {/* Names the excluded dollars so the arithmetic explains itself — otherwise the
-                  footer looks wrong next to a visible held amount in the table. */}
+                  footer looks wrong next to a visible held amount in the table. Paused and
+                  ended are counted separately so the denotation carries through here too. */}
               {held.dollars > 0 && (
                 <span className="text-slate-400">
-                  {' '}· {fmtMoney(held.dollars)} held in {held.count} paused{' '}
-                  {held.count === 1 ? 'campaign' : 'campaigns'}
+                  {' '}· {fmtMoney(held.dollars)} held in{' '}
+                  {[
+                    held.pausedCount > 0 && `${held.pausedCount} paused ${held.pausedCount === 1 ? 'campaign' : 'campaigns'}`,
+                    held.endedCount > 0 && `${held.endedCount} ended ${held.endedCount === 1 ? 'campaign' : 'campaigns'}`,
+                  ].filter(Boolean).join(', ')}
                 </span>
               )}
             </div>
@@ -671,9 +689,14 @@ export function GAdsPacingDetailPanel({
   const dowFlags = dowFlagsList(record.dowFlags);
   // Only ENABLED campaigns are shown. PAUSED campaigns stay in the data (their spend still
   // counts toward the account total, which is read from an account-level field, not summed
-  // here) but must not appear as rows. Campaign-derived panel values use the visible subset so
-  // the mix chip and header labels reconcile with what's on screen.
-  const visibleCampaigns = record.campaigns.filter(isCampaignEnabled);
+  // here) but must not appear as rows. An ended campaign is still ENABLED in Ads, so it isn't
+  // caught by that filter — it DOES appear (with its tag), but only if it has spend this month;
+  // a $0 ended row adds noise without anything to show (see isEndedWithNoSpend). Campaign-derived
+  // panel values use the visible subset so the mix chip and header labels reconcile with what's
+  // on screen.
+  const visibleCampaigns = record.campaigns.filter(
+    (c) => isCampaignEnabled(c) && !isEndedWithNoSpend(c),
+  );
   const capPaused = allCampaignsPaused(record);
   const mix = budgetLimitedCount({ campaigns: visibleCampaigns });
   // Once any row carries a final_daily_budget, the table leads with the actually-applied
@@ -862,9 +885,11 @@ export function GAdsPacingDetailPanel({
                         <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>
                           <div className="flex items-center gap-1.5">
                             <span>{c.campaignName || '(unnamed)'}</span>
-                            {c.paused && (
+                            {isCampaignEnded(c) ? (
+                              <span className="text-[11px] font-normal text-slate-400">ended</span>
+                            ) : c.paused ? (
                               <span className="text-[11px] font-normal text-slate-400">paused</span>
-                            )}
+                            ) : null}
                             {conflict && <ConflictIcon />}
                           </div>
                         </td>

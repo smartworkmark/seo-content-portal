@@ -85,7 +85,8 @@ export type SkipReason =
   | 'CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING'
   | 'NO_MEANINGFUL_CHANGE'
   | 'MONTH_START_GRACE'
-  | 'BUDGET_LIMITED_NO_DECREASE';
+  | 'BUDGET_LIMITED_NO_DECREASE'
+  | 'ENDED_EXPERIMENT';
 
 export interface GAdsPacingCampaign {
   campaignId: string;
@@ -126,6 +127,11 @@ export interface GAdsPacingCampaign {
   // treated as ENABLED (see isCampaignEnabled in g-ads-pacing.ts). Drives which campaigns
   // are shown in the breakdown and the "Paused (cap reached)" account status.
   campaignStatus: string;
+  // New 'campaign_serving_status' column on the G Ads Pacing sheet: 'SERVING' | 'ENDED' | ''.
+  // Distinct from campaignStatus (Google Ads' own ENABLED/PAUSED) — a campaign whose serving
+  // has ended won't reliably have campaignStatus flip too. See isCampaignEnded in
+  // g-ads-pacing.ts.
+  campaignServingStatus: string;
 }
 
 // Operator intent for an account's campaign-level budget split. Persisted in the
