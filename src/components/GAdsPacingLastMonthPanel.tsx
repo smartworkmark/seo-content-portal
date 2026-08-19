@@ -8,6 +8,7 @@ import {
   fmtMoney,
   fmtSpendShareOfBudget,
   isCampaignEnabled,
+  isCampaignEnded,
 } from '@/lib/g-ads-pacing';
 
 interface GAdsPacingLastMonthPanelProps {
@@ -154,9 +155,11 @@ export function GAdsPacingLastMonthPanel({ record, colSpan }: GAdsPacingLastMont
                         <td style={{ padding: '8px', fontWeight: 600, color: '#0f172a' }}>
                           <div className="flex items-center gap-1.5">
                             <span>{c.campaignName || '(unnamed)'}</span>
-                            {!isCampaignEnabled(c) && (
+                            {isCampaignEnded(c) ? (
+                              <span className="text-[11px] font-normal text-slate-400">ended</span>
+                            ) : !isCampaignEnabled(c) ? (
                               <span className="text-[11px] font-normal text-slate-400">paused</span>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                         <td style={{ padding: '8px', textAlign: 'right', color: '#334155' }}>

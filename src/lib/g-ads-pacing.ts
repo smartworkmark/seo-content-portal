@@ -154,6 +154,37 @@ export function isCampaignEnabled(campaign: Pick<GAdsPacingCampaign, 'campaignSt
   return String(campaign.campaignStatus || 'ENABLED').toUpperCase() === 'ENABLED';
 }
 
+// A campaign whose serving has permanently ended (its own end date lapsed), from the
+// campaign_serving_status column on the G Ads Pacing sheet. Distinct from campaignStatus
+// (Google Ads' own ENABLED/PAUSED), which won't reliably flip just because serving ended.
+// Blank/missing (most rows, until the column is backfilled) defaults to "not ended" — treated
+// as actively serving — same as isCampaignEnabled() defaults a blank campaignStatus to ENABLED.
+// A campaign can be both paused AND ended at once; callers that render a single label should
+// check this FIRST and only fall back to the plain-paused label when it's false (ended is the
+// bigger-impact state — see heldReasonLabel() in budget-allocation.ts).
+export function isCampaignEnded(
+  campaign: Pick<GAdsPacingCampaign, 'campaignServingStatus'>,
+): boolean {
+  return campaign.campaignServingStatus === 'ENDED';
+}
+
+// An ended campaign with zero spend this month has nothing to show in the campaign breakdown
+// table — its Applied/day and "Auto-applied" status describe a budget nothing can reach, which
+// reads as active management of a campaign that isn't running. A PAUSED campaign doesn't need
+// this: pausing already flips campaignStatus to PAUSED (see isCampaignEnabled), so it's excluded
+// from the breakdown before spend is even considered — same outcome, no separate rule required.
+// Ended is the one signal that doesn't flip campaignStatus along with it (confirmed against
+// production data), so it needs this explicit check. Scoped to zero spend: an ended campaign
+// that DID spend earlier this month stays visible, since that spend is real. The Budget
+// Allocation card and the Last month panel intentionally keep showing $0 held/ended rows
+// (accounting for stranded budget / reconciling total spend), so this is scoped to the
+// breakdown table only.
+export function isEndedWithNoSpend(
+  campaign: Pick<GAdsPacingCampaign, 'campaignServingStatus' | 'spendMtd'>,
+): boolean {
+  return isCampaignEnded(campaign) && campaign.spendMtd <= 0;
+}
+
 // The backend writes status_reason as lowercase snake_case tokens (Campaign Budget Status
 // sheet); parseBudgetStatus passes them through raw, so they'd otherwise render as-is in the
 // amber "Running at the account level" banner. `paused` and `no_active_campaigns` arrive with
@@ -700,6 +731,7 @@ export const SKIP_REASON_LABELS: Record<Exclude<SkipReason, ''>, string> = {
   NO_MEANINGFUL_CHANGE: 'No meaningful change',
   MONTH_START_GRACE: 'Month start — monitoring only',
   BUDGET_LIMITED_NO_DECREASE: 'Campaign is budget-capped',
+  ENDED_EXPERIMENT: 'Campaign has ended',
 };
 
 // Color band for the 7-day utilization bar.

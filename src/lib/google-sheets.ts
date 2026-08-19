@@ -277,6 +277,7 @@ const VALID_SKIP_REASONS: readonly SkipReason[] = [
   'NO_MEANINGFUL_CHANGE',
   'MONTH_START_GRACE',
   'BUDGET_LIMITED_NO_DECREASE',
+  'ENDED_EXPERIMENT',
 ] as const;
 
 function normalizeClassification(raw: string | undefined): Classification {
@@ -363,6 +364,8 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
   const dowFlagsIdx = idx('dow_flags');
   // Live Google Ads campaign state (ENABLED / PAUSED). Blank on historical rows.
   const campaignStatusIdx = idx('campaign_status');
+  // New: 'SERVING' / 'ENDED'. Blank on most rows until the column is backfilled.
+  const campaignServingStatusIdx = idx('campaign_serving_status');
 
   const cell = (row: string[], i: number): string | undefined => (i >= 0 ? row[i] : undefined);
 
@@ -400,6 +403,7 @@ function parseGAdsPacing(rows: string[][]): GAdsPacingRecord[] {
       paused: false,
       pausedDate: '',
       campaignStatus: String(cell(row, campaignStatusIdx) ?? '').trim(),
+      campaignServingStatus: String(cell(row, campaignServingStatusIdx) ?? '').trim().toUpperCase(),
     };
 
     const existing = groups.get(key);

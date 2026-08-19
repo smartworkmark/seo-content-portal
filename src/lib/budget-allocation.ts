@@ -15,7 +15,7 @@
 // the "Campaign Budget Status" sheet (effective_mode / status_reason).
 
 import type { GAdsPacingCampaign } from '@/types';
-import { fmtMoney, isCampaignEnabled } from './g-ads-pacing';
+import { fmtMoney, isCampaignEnabled, isCampaignEnded } from './g-ads-pacing';
 
 // Divergence beyond this fraction of the account budget triggers the soft warning.
 export const DIVERGENCE_TOLERANCE = 0.02; // 2%
@@ -25,12 +25,13 @@ export const DIVERGENCE_TOLERANCE = 0.02; // 2%
 //                   Google Ads budget; shared budgets are set at the Google Ads budget level
 //                   and can never be steered from here).
 //   isAllocatable — "can this campaign be given a NEW amount right now?" (eligible AND ENABLED
-//                   in Google Ads). A PAUSED campaign still holds its saved dollars — they just
-//                   aren't steering anything — so it stays visible and read-only rather than
-//                   disappearing. Hiding it would strand the money invisibly.
+//                   in Google Ads AND not ended). A PAUSED or ENDED campaign still holds its
+//                   saved dollars — they just aren't steering anything — so it stays visible and
+//                   read-only rather than disappearing. Hiding it would strand the money
+//                   invisibly.
 // Rendering keys off isEligible. The save gate, draft seed and divergence summary all key off
-// isAllocatable. Filter on campaign_status, never on spend: an ENABLED campaign with $0 spend
-// is fully allocatable.
+// isAllocatable. Filter on campaign_status/campaign_serving_status, never on spend: an ENABLED,
+// still-serving campaign with $0 spend is fully allocatable.
 export function isEligible(campaign: GAdsPacingCampaign): boolean {
   return !campaign.sharedBudget;
 }
@@ -39,33 +40,48 @@ export function eligibleCampaigns(campaigns: GAdsPacingCampaign[]): GAdsPacingCa
   return campaigns.filter(isEligible);
 }
 
+// isCampaignEnded() is checked in addition to campaignStatus because a lapsed end date won't
+// reliably flip Google Ads' own campaign_status — an ended campaign can stay campaignStatus =
+// ENABLED indefinitely, so without this it would wrongly stay allocatable.
 export function isAllocatable(campaign: GAdsPacingCampaign): boolean {
-  return isEligible(campaign) && isCampaignEnabled(campaign);
+  return isEligible(campaign) && isCampaignEnabled(campaign) && !isCampaignEnded(campaign);
 }
 
 export function allocatableCampaigns(campaigns: GAdsPacingCampaign[]): GAdsPacingCampaign[] {
   return campaigns.filter(isAllocatable);
 }
 
-// Eligible-but-PAUSED: the row is shown but not editable.
+// Eligible-but-PAUSED-or-ENDED: the row is shown but not editable.
 export function isHeld(campaign: GAdsPacingCampaign): boolean {
-  return isEligible(campaign) && !isCampaignEnabled(campaign);
+  return isEligible(campaign) && (!isCampaignEnabled(campaign) || isCampaignEnded(campaign));
+}
+
+// Which held-reason label to show for a campaign, if any. Ended takes precedence over paused
+// when both are true — it's the bigger-impact state — even though both are held identically.
+export function heldReasonLabel(campaign: GAdsPacingCampaign): 'paused' | 'ended' | null {
+  if (isCampaignEnded(campaign)) return 'ended';
+  if (!isCampaignEnabled(campaign)) return 'paused';
+  return null;
 }
 
 export interface HeldBudget {
   dollars: number;
   count: number;
+  pausedCount: number;
+  endedCount: number;
 }
 
-// Dollars saved against eligible-but-PAUSED campaigns. Held, not steering: excluded from the
-// allocation total (so the summary reads as a stranded-budget detector — a paused campaign
-// spends $0, so those dollars really will go unspent) and surfaced separately in the UI so the
-// arithmetic explains itself.
+// Dollars saved against eligible-but-held (paused or ended) campaigns. Held, not steering:
+// excluded from the allocation total (so the summary reads as a stranded-budget detector — a
+// held campaign spends $0, so those dollars really will go unspent) and surfaced separately in
+// the UI so the arithmetic explains itself.
 export function heldBudget(campaigns: GAdsPacingCampaign[]): HeldBudget {
   const held = campaigns.filter(isHeld);
   return {
     count: held.length,
     dollars: held.reduce((sum, c) => sum + (c.budgetDollars ?? 0), 0),
+    pausedCount: held.filter((c) => !isCampaignEnded(c)).length,
+    endedCount: held.filter((c) => isCampaignEnded(c)).length,
   };
 }
 
