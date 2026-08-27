@@ -47,6 +47,7 @@ export interface NegKeywordReview {
   practiceName: string;
   companyId: string;
   campaignName: string;
+  adChannelType: string;
   termsReviewed: number;
 }
 

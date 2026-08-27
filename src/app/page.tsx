@@ -57,6 +57,7 @@ export default function Dashboard() {
   const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
   const [pacingView, setPacingView] = useState<PacingView>('daily');
   const [selectedConfidences, setSelectedConfidences] = useState<string[]>([]);
+  const [selectedAdChannelTypes, setSelectedAdChannelTypes] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [showErrors, setShowErrors] = useState(false);
@@ -129,11 +130,12 @@ export default function Dashboard() {
         { key: 'url', label: 'URL' },
       ]);
     } else if (activeTab === 'neg-keywords') {
-      exportToCSV(filteredNegKeywords, 'neg-keywords', [
+      exportToCSV(adChannelTypeFilteredNegKeywords, 'neg-keywords', [
         { key: 'dateTime', label: 'Date/Time' },
         { key: 'practiceName', label: 'Practice Name' },
         { key: 'companyId', label: 'HSID' },
         { key: 'campaignName', label: 'Campaign' },
+        { key: 'adChannelType', label: 'Ad Channel Type' },
         { key: 'termsReviewed', label: 'Terms Reviewed' },
       ]);
     } else if (activeTab === 'g-ads-pacing' && pacingView === 'last-month') {
@@ -284,6 +286,12 @@ export default function Dashboard() {
     ? filteredKwBuildout
     : filteredKwBuildout.filter((r) => r.keywords.some((k) => selectedConfidences.includes(k.confidence)));
 
+  // Ad Channel Type filter — applied as a final pass on top of practice+date filtered records.
+  // Empty = show all.
+  const adChannelTypeFilteredNegKeywords = selectedAdChannelTypes.length === 0
+    ? filteredNegKeywords
+    : filteredNegKeywords.filter((r) => selectedAdChannelTypes.includes(r.adChannelType));
+
   // Cycle: off → include → exclude → off
   const handleFeatureToggle = (feature: string) => {
     setFeatureFilters((prev) => {
@@ -312,6 +320,7 @@ export default function Dashboard() {
       setPacingView('daily');
     }
     if (tab !== 'kw-buildout') setSelectedConfidences([]);
+    if (tab !== 'neg-keywords') setSelectedAdChannelTypes([]);
   };
 
   // Apply a saved filter
@@ -493,6 +502,8 @@ export default function Dashboard() {
               periodLabel={lastMonthLabel}
               selectedConfidences={selectedConfidences}
               onConfidencesChange={setSelectedConfidences}
+              selectedAdChannelTypes={selectedAdChannelTypes}
+              onAdChannelTypesChange={setSelectedAdChannelTypes}
             />
           </div>
 
@@ -528,7 +539,7 @@ export default function Dashboard() {
             blogs={featureFilteredBlogs}
             gmbPosts={filteredGmbPosts}
             replies={filteredReplies}
-            negKeywordReviews={filteredNegKeywords}
+            negKeywordReviews={adChannelTypeFilteredNegKeywords}
             gAdsPacing={reviewFilteredGAdsPacing}
             pacingView={pacingView}
             periodLabel={lastMonthLabel}
