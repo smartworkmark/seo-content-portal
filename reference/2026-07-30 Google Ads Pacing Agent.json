@@ -7,7 +7,7 @@
       "typeVersion": 1,
       "position": [
         -464,
-        96
+        64
       ],
       "id": "3195d421-5dd7-4667-ae06-531d3160311a",
       "name": "When clicking ‘Execute workflow’"
@@ -46,7 +46,7 @@
       "typeVersion": 4.2,
       "position": [
         -240,
-        176
+        144
       ],
       "retryOnFail": true,
       "waitBetweenTries": 5000,
@@ -93,7 +93,7 @@
       "typeVersion": 3.4,
       "position": [
         656,
-        176
+        144
       ],
       "id": "e27ff9b3-7db5-4ec1-a9a0-d7db6d32641e",
       "name": "Edit Fields"
@@ -106,7 +106,7 @@
       "typeVersion": 1,
       "position": [
         208,
-        176
+        144
       ],
       "id": "462977ed-55c7-4fe4-9309-170b239b6e78",
       "name": "Limit"
@@ -121,7 +121,7 @@
       "typeVersion": 1,
       "position": [
         -16,
-        176
+        144
       ],
       "id": "eb87e457-6713-441e-92c5-b6b12192e91d",
       "name": "Split Out"
@@ -147,14 +147,14 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"query\": \"SELECT campaign.id, campaign.name, campaign.status, campaign_budget.amount_micros, metrics.cost_micros, metrics.search_budget_lost_impression_share, customer.currency_code FROM campaign WHERE campaign.status = 'ENABLED' AND segments.date DURING THIS_MONTH\"}",
+        "jsonBody": "={\"query\": \"SELECT campaign.id, campaign.name, campaign.status, campaign_budget.amount_micros, metrics.cost_micros, metrics.search_budget_lost_impression_share, customer.currency_code FROM campaign WHERE campaign.status != 'REMOVED' AND segments.date DURING THIS_MONTH\"}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
         880,
-        480
+        448
       ],
       "id": "ecc9257c-ef7e-4252-b2a2-0cf3243c880f",
       "name": "Budget pacing (current month spend)1",
@@ -172,13 +172,13 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const today = new Date();\nconst daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();\nconst dayOfMonth = today.getDate();\nconst daysRemaining = daysInMonth - dayOfMonth + 1;\nconst expectedPaceRatio = dayOfMonth / daysInMonth;\nconst todayISO = today.toISOString().split('T')[0];\n// === DAY-OF-WEEK BUDGET MULTIPLIERS (Bill's Final v2) ===\n// JS getDay(): 0 = Sunday ... 6 = Saturday\nconst DOW_MULTIPLIERS = {\n  0: -0.26, // Sunday    — weakest day (-36%)\n  1:  0.20, // Monday    — strongest day (+22.5% lift)\n  2: -0.04, // Tuesday   — below average, good CPA\n  3:  0.05, // Wednesday — solid day\n  4:  0.08, // Thursday  — very efficient\n  5:  0.03, // Friday    — above average\n  6: -0.18  // Saturday  — weak day (-22.9%)\n};\n// Date the DOW system first goes live. Budgets set before this date were\n// NOT day-of-week shaped, so yesterday-multiplier de-normalization is\n// skipped for any day before it.\nconst DOW_ENABLED_SINCE = '2026-06-16'; // <-- SET TO ACTUAL GO-LIVE DATE\nconst pacingItem = $input.item.json;\nconst editItem = $('Edit Fields').item.json;\nconst practiceName = editItem.practiceName || 'Unknown practice';\nconst adsId = editItem.adsId;\nconst hubspotMonthlyBudget = Number(editItem.monthlyBudget || 0);\nconst rawResults = Array.isArray(pacingItem.results) ? pacingItem.results : [];\n\nconst adsIdForSpend = String(adsId || '').trim();\n// Enabled-only sum = the OLD (under-counting) number. Kept as a safe fallback.\nconst enabledCampaignSpend = rawResults.reduce((sum, row) =>\n  sum + Number(row.metrics?.costMicros || 0) / 1_000_000, 0);\n// True account MTD spend across ALL statuses (enabled + paused + removed).\n// Uses .all() — Account Spend is a SIBLING branch off Edit Fields, so .item\n// cannot resolve paired lineage and throws. Matched explicitly on customer ID\n// so item order can never misattribute spend to the wrong account.\n// CRITICAL: on any failure, fall back to the enabled sum — NEVER 0. A false 0\n// reads as massive underpace and can trigger an auto-increase (Rule 3).\nlet accountTotalSpend = enabledCampaignSpend;\nlet spendSource = 'FALLBACK_NO_MATCH';\ntry {\n  const spendItems = $('Account Spend (all statuses)').all();\n  for (const it of spendItems) {\n    const rows = (it.json && it.json.results) || [];\n    const match = rows.find(row =>\n      String(row.customer?.resourceName || '').split('/')[1] === adsIdForSpend\n    );\n    if (match) {\n      accountTotalSpend = Number(match.metrics?.costMicros || 0) / 1_000_000;\n      spendSource = 'ACCOUNT_TOTAL';\n      break;\n    }\n  }\n} catch (e) {\n  spendSource = 'FALLBACK_REFERENCE_FAILED';\n}\nconst totalActualSpend = accountTotalSpend;\n\n// ============================================================================\n// === PHASE 4 — CAMPAIGN-LEVEL BUDGET CONFIG + ELIGIBILITY GATE ============\n// ----------------------------------------------------------------------------\n// Reads the operator-set Campaign Budgets config (executeOnce) and decides,\n// for THIS account, whether it is eligible for campaign-level steering.\n//\n// north star: reduce complexity + keep operator control. `budget_dollars`\n// is READ-ONLY input — never written back. The only thing the agent ever\n// mutates is the Google Ads daily budget (as it already does today).\n//\n// XOR: an account either steers per-campaign OR at account level, never both.\n// Any budget mismatch (coverage incomplete / shared budget / drift /\n// campaign-target sum overshoots the account budget) → fall back to\n// account-level pacing and record a status_reason. Single fallback path,\n// no rescaling, no exceptions.\n// ============================================================================\nlet campaignBudgetConfig = [];\ntry {\n  // executeOnce node upstream of this one; reads the whole Campaign Budgets tab.\n  campaignBudgetConfig = $('Read Budget Config (Pacing)').all().map(i => i.json);\n} catch (e) {\n  campaignBudgetConfig = []; // config read unavailable → treat as account-level\n}\n\nconst adsIdStr = String(adsId || '').trim();\n\n// Build a per-campaign config map scoped to THIS account.\nconst configByCampaign = {};\nlet accountHasManagedIntent = false;\nfor (const r of campaignBudgetConfig) {\n  if (!r || r.campaign_id == null || String(r.campaign_id).trim() === '') continue;\n  // Tombstoned config row (campaign removed in Google Ads). Skip entirely so it\n  // never enters configByCampaign / configuredCampaignIds and never trips the\n  // Phase 4 drift check. Missing/blank `active` is treated as TRUE so pre-migration\n  // rows and any hand-added row keep working.\n  if (String(r.active != null ? r.active : 'TRUE').toUpperCase() === 'FALSE') continue;\n  const rowAcct = r.google_ads_id != null ? String(r.google_ads_id).trim() : '';\n  if (rowAcct !== adsIdStr) continue; // only this account's rows\n  const managed = r.managed === true || String(r.managed).toUpperCase() === 'TRUE';\n  configByCampaign[String(r.campaign_id)] = {\n    budget_dollars: Number(r.budget_dollars) || 0,\n    managed\n  };\n  if (managed) accountHasManagedIntent = true;\n}\n\n// === SHARED BUDGET DETECTION ===\n// Build a map of budgetResource -> [campaignIds] to detect shared budgets.\n// When multiple campaigns share a budget resource, amountMicros is the FULL\n// shared amount on each row. Without dedup, we double/triple-count the\n// account-level daily budget, which breaks severity math and utilization.\nconst budgetResourceMap = {};\nrawResults.forEach(row => {\n  const resource = row.campaignBudget?.resourceName;\n  const campaignId = row.campaign?.id;\n  if (resource) {\n    if (!budgetResourceMap[resource]) {\n      budgetResourceMap[resource] = {\n        amountMicros: Number(row.campaignBudget?.amountMicros || 0),\n        campaignIds: []\n      };\n    }\n    budgetResourceMap[resource].campaignIds.push(campaignId);\n  }\n});\n// Deduplicated account-level daily budget: count each budget resource only once\nconst totalDailyBudget = Object.values(budgetResourceMap).reduce((sum, entry) =>\n  sum + entry.amountMicros / 1_000_000, 0);\nconst accountMonthlyBudget = hubspotMonthlyBudget > 0\n  ? hubspotMonthlyBudget\n  : totalDailyBudget * daysInMonth;\nconst accountExpectedSpend = accountMonthlyBudget * expectedPaceRatio;\nconst accountVariancePercent = accountExpectedSpend > 0\n  ? Math.round(((totalActualSpend - accountExpectedSpend) / accountExpectedSpend) * 100)\n  : 0;\n// === CAMPAIGN-LEVEL BUDGET ALLOCATION ===\nconst remainingBudget = accountMonthlyBudget - totalActualSpend;\nconst proposedDailyBudget = Math.max(0, Math.round(remainingBudget / daysRemaining));\n\n// ============================================================================\n// === PHASE 4 — ELIGIBILITY EVALUATION (per account, runs before targets) ===\n// Mirrors the checks already written in `Compute Status`, applied inline so\n// effective_mode is known BEFORE per-campaign targets are computed (Option A).\n// ============================================================================\nlet campaignSteeringEligible = false;\nlet campaignSteeringReason = 'good';       // good | not_managed | incomplete | shared_budget | drift | sum_overshoot\nconst enabledCampaignIds = rawResults\n  .map(row => row.campaign?.id)\n  .filter(id => id != null)\n  .map(String);\nconst configuredCampaignIds = Object.keys(configByCampaign);\n\n// PHASE 5: per-campaign drift attribution map (only meaningful for managed accounts)\nlet perCampaignReason = {};\n\nif (!accountHasManagedIntent) {\n  campaignSteeringReason = 'not_managed';\n} else {\n  // 1) Coverage: every ENABLED campaign in the feed must have a config row.\n  //    (Feed is filtered WHERE campaign.status='ENABLED', so it IS the enabled set.)\n  const uncovered = enabledCampaignIds.filter(id => !configByCampaign[id]);\n  // 2) Shared budget: any enabled campaign on a shared Google Ads budget → can't steer.\n  const hasSharedBudget = rawResults.some(row => {\n    const resource = row.campaignBudget?.resourceName;\n    return resource && budgetResourceMap[resource].campaignIds.length > 1;\n  });\n  // 3) Drift: a configured campaign no longer exists in the enabled set.\n  const enabledSet = new Set(enabledCampaignIds);\n  const drift = configuredCampaignIds.some(id => !enabledSet.has(id));\n  // 4) Sum overshoot: operator monthly targets sum above the account budget.\n  const configuredMonthlyTotal = configuredCampaignIds\n    .reduce((s, id) => s + (configByCampaign[id].budget_dollars || 0), 0);\n  const sumOvershoot = accountMonthlyBudget > 0\n    && configuredMonthlyTotal > accountMonthlyBudget;\n\n  // ===== PHASE 5 — PER-CAMPAIGN DRIFT ATTRIBUTION =====\n  // Reason for EACH configured campaign, so the portal can point at the offender\n  // instead of stamping the same account-level reason on every row.\n  const sharedIdsP5 = new Set(\n    rawResults\n      .filter(row => {\n        const res = row.campaignBudget?.resourceName;\n        return res && budgetResourceMap[res].campaignIds.length > 1;\n      })\n      .map(row => row.campaign?.id != null ? String(row.campaign.id) : '')\n      .filter(Boolean)\n  );\n  for (const cid of configuredCampaignIds) {\n    if (!enabledSet.has(cid))       perCampaignReason[cid] = 'drift';         // configured, not live\n    else if (sharedIdsP5.has(cid))  perCampaignReason[cid] = 'shared_budget'; // on a shared budget\n    else                            perCampaignReason[cid] = 'ok';            // this one is fine\n  }\n\n  if (uncovered.length > 0)      campaignSteeringReason = 'incomplete';\n  else if (hasSharedBudget)      campaignSteeringReason = 'shared_budget';\n  else if (drift)                campaignSteeringReason = 'drift';\n  else if (sumOvershoot)         campaignSteeringReason = 'sum_overshoot';\n  else {\n    campaignSteeringEligible = true;\n    campaignSteeringReason = 'good';\n  }\n}\n\n// === DAY-OF-WEEK ADJUSTMENT (account-level; applied per campaign at the\n//     FINAL step in Merged Data — proposedDailyBudget stays the BASE) ===\nconst normalDailyAverage = daysInMonth > 0 ? accountMonthlyBudget / daysInMonth : 0;\nconst rawDowAdjustment = DOW_MULTIPLIERS[today.getDay()] || 0;\nconst dowFlags = [];\nlet dowAdjustment = rawDowAdjustment;\n// Bill's end-of-month catch-up rule + symmetric overspend guard:\n// if the required daily pace is far from the normal daily average\n// (>130% behind or <70% ahead), halve the multiplier deviation today.\nconst catchUpActive = normalDailyAverage > 0 && (\n  proposedDailyBudget > 1.3 * normalDailyAverage ||\n  proposedDailyBudget < 0.7 * normalDailyAverage\n);\nif (catchUpActive) {\n  dowAdjustment = dowAdjustment * 0.5;\n  dowFlags.push('CATCH_UP_HALVED');\n}\n// Month-end guard: with <=2 days left there is no tomorrow for the\n// remaining-budget feedback loop to self-correct — suppress DOW entirely.\nif (daysRemaining <= 2) {\n  dowAdjustment = 0;\n  dowFlags.push('MONTH_END_SUPPRESSED');\n}\nconst dowMultiplier = Math.round((1 + dowAdjustment) * 100) / 100;\n// === ESTIMATED YESTERDAY MULTIPLIER (base de-normalization) ===\n// The live budget read from the API this morning embodies YESTERDAY's\n// multiplier. All comparisons must run base-to-base, so divide it out.\nconst yesterday = new Date(today);\nyesterday.setDate(yesterday.getDate() - 1);\nconst yesterdayISO = yesterday.toISOString().split('T')[0];\nlet estimatedYesterdayMultiplier = 1;\nif (yesterdayISO >= DOW_ENABLED_SINCE) {\n  estimatedYesterdayMultiplier = 1 + (DOW_MULTIPLIERS[yesterday.getDay()] || 0);\n}\n// Yesterday was month-end suppressed (its daysRemaining was <= 2), or was\n// the day-1 grace period (no mutate ran) — live budget carries no multiplier.\nif (daysRemaining <= 1 || dayOfMonth <= 2) {\n  estimatedYesterdayMultiplier = 1;\n}\nconst campaigns = rawResults.map(row => {\n  const rawDailyBudget = Number(row.campaignBudget?.amountMicros || 0) / 1_000_000;\n  const budgetResource = row.campaignBudget?.resourceName;\n  const siblingCount = budgetResource\n    ? budgetResourceMap[budgetResource].campaignIds.length\n    : 1;\n  const isSharedBudget = siblingCount > 1;\n  // effectiveDailyBudget = this campaign's proportional share of the budget resource\n  const effectiveDailyBudget = Math.round(rawDailyBudget / siblingCount);\n  // De-normalized base view of the live budget (strip yesterday's multiplier)\n  const baseCurrentDailyBudget = estimatedYesterdayMultiplier !== 0\n    ? Math.round(effectiveDailyBudget / estimatedYesterdayMultiplier)\n    : effectiveDailyBudget;\n  const actualSpend = Number(row.metrics?.costMicros || 0) / 1_000_000;\n  // Use total account spend for pacing, but distribute the remaining\n  // allowance only across campaigns that are currently enabled.\n  const spendFraction = enabledCampaignSpend > 0\n    ? actualSpend / enabledCampaignSpend\n    : 1 / Math.max(rawResults.length, 1);\n\n  const spendShare = Math.round(spendFraction * 100);\n\n  const campaignId = row.campaign?.id != null ? String(row.campaign?.id) : null;\n\n  // ===== PHASE 4 — PER-CAMPAIGN TARGET SELECTION =====\n  // Managed + eligible → pace this campaign toward ITS OWN monthly target\n  // using the same remaining/days-remaining formula the account uses.\n  // Otherwise → the existing account-spend-share split (unchanged behavior).\n  const cfg = campaignId ? configByCampaign[campaignId] : null;\n  let campaignProposedBudget;\n  let campaignSteered = false;\n  if (campaignSteeringEligible && cfg && cfg.managed) {\n    const campaignMonthlyTarget = cfg.budget_dollars || 0;\n    const campaignRemaining = campaignMonthlyTarget - actualSpend;\n    campaignProposedBudget = Math.max(0, Math.round(campaignRemaining / daysRemaining));\n    campaignSteered = true;\n  } else {\n      campaignProposedBudget = Math.round(proposedDailyBudget * spendFraction);\n    }\n\n  return {\n    campaignId: row.campaign?.id,\n    campaignStatus: row.campaign?.status || null,\n    campaignBudgetResource: budgetResource,\n    name: row.campaign?.name || 'Unknown campaign',\n    actualSpend: Math.round(actualSpend),\n    currentDailyBudget: effectiveDailyBudget,\n    baseCurrentDailyBudget,\n    rawBudgetResourceAmount: Math.round(rawDailyBudget),\n    proposedDailyBudget: campaignProposedBudget,\n    searchBudgetLostIS: Number(row.metrics?.searchBudgetLostImpressionShare || 0),\n    spendShare,\n    isSharedBudget,\n    sharedBudgetSiblings: siblingCount,\n    // Phase 4 audit fields\n    campaignSteered,\n    campaignMonthlyTarget: (cfg && cfg.managed) ? (cfg.budget_dollars || 0) : null\n  };\n});\n// === TASK 1 (2026-07-23): DROP DEAD/TEST CAMPAIGNS (zero MTD spend) ===\n// Enabled campaigns that have spent $0 month-to-date are treated as inactive/test\n// campaigns and excluded from pacing routing, logging, and the portal. Gated to\n// dayOfMonth > 1 so the 1st of a new month (all spend naturally $0) does not wipe\n// every campaign — that is the existing day-1 grace period.\nconst activeCampaigns = dayOfMonth > 1\n  ? campaigns.filter(c => c.actualSpend > 0)\n  : campaigns;\n\n// === PROJECTION-BASED SEVERITY MODEL ===\nconst dailyRunRate = dayOfMonth > 0 ? totalActualSpend / dayOfMonth : 0;\nconst projectedTotal = totalActualSpend + (dailyRunRate * daysRemaining);\nconst projectedOvershoot = projectedTotal - accountMonthlyBudget;\nconst dailyCorrectionNeeded = daysRemaining > 0\n  ? projectedOvershoot / daysRemaining\n  : projectedOvershoot;\nconst currentAccountDailyBudget = totalDailyBudget > 0 ? totalDailyBudget : 1;\nconst correctionPercent = Math.abs(dailyCorrectionNeeded) / currentAccountDailyBudget;\nconst direction = projectedOvershoot > 0 ? 'over' : 'under';\nlet severity;\nif (correctionPercent < 0.05) {\n  severity = 'OK';\n} else if (direction === 'over' && correctionPercent >= 0.30) {\n  severity = 'CRITICAL';\n} else if (direction === 'over' && correctionPercent >= 0.15) {\n  severity = 'ALERT';\n} else if (direction === 'over') {\n  severity = 'AUTO';\n} else if (direction === 'under' && correctionPercent >= 0.15) {\n  severity = 'UNDERPACE';\n} else {\n  severity = 'AUTO';\n}\n// === CLIENT-FACING DISPLAY STATUS (5 symmetric tiers) ===\n// Basis: how far the account is over/under its pace vs the daily target\n// (= month-to-date variance %, the figure shown on the account). Decoupled\n// from routing `severity` — display only, drives NO money decision.\n// Bands (\">\" = higher tier): |var| <= 10% On Track; 10-20% Under/Overpacing\n// (20% stays mild); > 20% Significantly. + = over target, - = under.\nconst displayVariance = accountVariancePercent;      // signed integer %, + over / - under\nconst displayVarianceMag = Math.abs(displayVariance);\nlet displayStatus;\nif (displayVarianceMag <= 10) {\n  displayStatus = 'On Track';\n} else if (displayVariance > 0) {\n  displayStatus = displayVarianceMag > 20 ? 'Significantly Overpacing' : 'Overpacing';\n} else {\n  displayStatus = displayVarianceMag > 20 ? 'Significantly Underpacing' : 'Underpacing';\n}\n// Damping caps by severity\nconst dampingCaps = {\n  CRITICAL: 0.30,\n  ALERT: 0.20,\n  AUTO: 0.10,\n  UNDERPACE: 0.20,\n  OK: 0.05\n};\nconst maxChangePercent = dampingCaps[severity] || 0.10;\nfunction dampAdjustment(currentBudget, rawProposed, cap) {\n  if (currentBudget === 0) return rawProposed;\n  const ceiling = currentBudget * (1 + cap);\n  const floor = currentBudget * (1 - cap);\n  return Math.round(Math.min(ceiling, Math.max(floor, rawProposed)));\n}\n// DAMPING NOW CLAMPS AGAINST THE DE-NORMALIZED BASE-CURRENT, not the\n// live (multiplied) budget — otherwise yesterday's multiplier corrupts\n// today's base and the DOW swing gets eaten by the damping cap.\nconst dampedCampaigns = activeCampaigns.map(c => {\n  const dampedBudget = dampAdjustment(c.baseCurrentDailyBudget, c.proposedDailyBudget, maxChangePercent);\n  return {\n    ...c,\n    rawProposedDailyBudget: c.proposedDailyBudget,\n    proposedDailyBudget: dampedBudget,\n    dampedFrom: c.proposedDailyBudget !== dampedBudget ? c.proposedDailyBudget : null\n  };\n});\nreturn {\n  json: {\n    practiceName,\n    adsId,\n    severity,\n    displayStatus,   // client-facing 5-tier pacing label (display only, not routing)\n    date: todayISO,\n    // Phase 4: account-level steering mode (drives XOR + portal status)\n    campaignSteering: {\n      eligible: campaignSteeringEligible,\n      effectiveMode: campaignSteeringEligible ? 'campaign' : 'account',\n      statusReason: campaignSteeringReason,\n      managedIntent: accountHasManagedIntent,\n      configuredCount: configuredCampaignIds.length,\n      enabledCount: enabledCampaignIds.length,\n      perCampaignReason   // PHASE 5: { campaign_id: 'drift'|'shared_budget'|'ok' }\n    },\n    pacing: {\n      monthlyBudget: Math.round(accountMonthlyBudget),\n      totalActualSpend: Math.round(totalActualSpend),\n      expectedSpend: Math.round(accountExpectedSpend),\n      variancePercent: accountVariancePercent,\n      remainingBudget: Math.round(remainingBudget),\n      currentDailyBudget: Math.round(totalDailyBudget),\n      proposedDailyBudget,\n      flagged: severity !== 'OK',\n      spendSource,\n      enabledCampaignSpend: Math.round(enabledCampaignSpend)\n    },\n    projection: {\n      dailyRunRate: Math.round(dailyRunRate),\n      projectedTotal: Math.round(projectedTotal),\n      projectedOvershoot: Math.round(projectedOvershoot),\n      dailyCorrectionNeeded: Math.round(dailyCorrectionNeeded),\n      correctionPercent: Math.round(correctionPercent * 100),\n      direction,\n      maxChangePercent: Math.round(maxChangePercent * 100)\n    },\n    dateContext: {\n      dayOfMonth,\n      daysInMonth,\n      daysRemaining,\n      expectedPacePercent: Math.round(expectedPaceRatio * 100)\n    },\n    dow: {\n      multiplier: dowMultiplier,\n      rawAdjustment: rawDowAdjustment,\n      catchUpActive,\n      flags: dowFlags,\n      estimatedYesterdayMultiplier,\n      normalDailyAverage: Math.round(normalDailyAverage)\n    },\n    campaigns: dampedCampaigns\n  }\n};\n"
+        "jsCode": "const today = new Date();\nconst daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();\nconst dayOfMonth = today.getDate();\nconst daysRemaining = daysInMonth - dayOfMonth + 1;\nconst expectedPaceRatio = dayOfMonth / daysInMonth;\nconst todayISO = today.toISOString().split('T')[0];\n// === DAY-OF-WEEK BUDGET MULTIPLIERS (Bill's Final v2) ===\n// JS getDay(): 0 = Sunday ... 6 = Saturday\nconst DOW_MULTIPLIERS = {\n  0: -0.26, // Sunday    — weakest day (-36%)\n  1:  0.20, // Monday    — strongest day (+22.5% lift)\n  2: -0.04, // Tuesday   — below average, good CPA\n  3:  0.05, // Wednesday — solid day\n  4:  0.08, // Thursday  — very efficient\n  5:  0.03, // Friday    — above average\n  6: -0.18  // Saturday  — weak day (-22.9%)\n};\n// Date the DOW system first goes live. Budgets set before this date were\n// NOT day-of-week shaped, so yesterday-multiplier de-normalization is\n// skipped for any day before it.\nconst DOW_ENABLED_SINCE = '2026-06-16'; // <-- SET TO ACTUAL GO-LIVE DATE\nconst pacingItem = $input.item.json;\nconst editItem = $('Edit Fields').item.json;\nconst practiceName = editItem.practiceName || 'Unknown practice';\nconst adsId = editItem.adsId;\nconst hubspotMonthlyBudget = Number(editItem.monthlyBudget || 0);\nconst rawResults = Array.isArray(pacingItem.results) ? pacingItem.results : [];\n\nconst adsIdForSpend = String(adsId || '').trim();\n// === HOURLY CAP-PAUSE — PHASE 2 (2026-07-30): PAUSED-CAMPAIGN VISIBILITY ===\n// The GAQL feed no longer filters `campaign.status = 'ENABLED'` (it now excludes\n// only REMOVED), so a campaign the agent paused stays visible and keeps getting\n// a daily log row instead of silently vanishing from the dataset.\n//\n// The cost of that: every account-level aggregate below was written assuming\n// rawResults contained ENABLED campaigns only. Each one is now scoped to\n// `enabledResults` explicitly. Getting this wrong is not loud -- it quietly\n// dilutes `correctionPercent` and softens severity on every account that has a\n// paused campaign. `campaigns` (the per-campaign map) still runs over the FULL\n// rawResults, because paused campaigns must reach the log.\nconst enabledResults = rawResults.filter(row =>\n  String(row.campaign?.status || 'ENABLED').toUpperCase() === 'ENABLED');\n\n// Enabled-only sum = the OLD (under-counting) number. Kept as a safe fallback.\nconst enabledCampaignSpend = enabledResults.reduce((sum, row) =>\n  sum + Number(row.metrics?.costMicros || 0) / 1_000_000, 0);\n\n// === V2 (2026-07-30): NON-ENABLED SPEND, REPORTED NOT HIDDEN ===\n// Paused campaigns no longer get a portal row, but their money still has to be\n// accountable. This is the dollar figure sitting behind campaigns that are in\n// the feed but switched off. `unattributedSpend` is the reconciliation residue:\n// account total minus everything we can name, which is spend from REMOVED\n// campaigns (the GAQL excludes those, the account-level query does not).\n// If unattributedSpend is ever large and unexplained, that is a signal.\nconst nonEnabledResults = rawResults.filter(row =>\n  String(row.campaign?.status || 'ENABLED').toUpperCase() !== 'ENABLED');\nconst nonEnabledSpend = nonEnabledResults.reduce((sum, row) =>\n  sum + Number(row.metrics?.costMicros || 0) / 1_000_000, 0);\nconst nonEnabledCampaignCount = nonEnabledResults.length;\n// True account MTD spend across ALL statuses (enabled + paused + removed).\n// Uses .all() — Account Spend is a SIBLING branch off Edit Fields, so .item\n// cannot resolve paired lineage and throws. Matched explicitly on customer ID\n// so item order can never misattribute spend to the wrong account.\n// CRITICAL: on any failure, fall back to the enabled sum — NEVER 0. A false 0\n// reads as massive underpace and can trigger an auto-increase (Rule 3).\nlet accountTotalSpend = enabledCampaignSpend;\nlet spendSource = 'FALLBACK_NO_MATCH';\ntry {\n  const spendItems = $('Account Spend (all statuses)').all();\n  for (const it of spendItems) {\n    const rows = (it.json && it.json.results) || [];\n    const match = rows.find(row =>\n      String(row.customer?.resourceName || '').split('/')[1] === adsIdForSpend\n    );\n    if (match) {\n      accountTotalSpend = Number(match.metrics?.costMicros || 0) / 1_000_000;\n      spendSource = 'ACCOUNT_TOTAL';\n      break;\n    }\n  }\n} catch (e) {\n  spendSource = 'FALLBACK_REFERENCE_FAILED';\n}\nconst totalActualSpend = accountTotalSpend;\n\n// ============================================================================\n// === PHASE 4 — CAMPAIGN-LEVEL BUDGET CONFIG + ELIGIBILITY GATE ============\n// ----------------------------------------------------------------------------\n// Reads the operator-set Campaign Budgets config (executeOnce) and decides,\n// for THIS account, whether it is eligible for campaign-level steering.\n//\n// north star: reduce complexity + keep operator control. `budget_dollars`\n// is READ-ONLY input — never written back. The only thing the agent ever\n// mutates is the Google Ads daily budget (as it already does today).\n//\n// XOR: an account either steers per-campaign OR at account level, never both.\n// Any budget mismatch (coverage incomplete / shared budget / drift /\n// campaign-target sum overshoots the account budget) → fall back to\n// account-level pacing and record a status_reason. Single fallback path,\n// no rescaling, no exceptions.\n// ============================================================================\nlet campaignBudgetConfig = [];\ntry {\n  // executeOnce node upstream of this one; reads the whole Campaign Budgets tab.\n  campaignBudgetConfig = $('Read Budget Config (Pacing)').all().map(i => i.json);\n} catch (e) {\n  campaignBudgetConfig = []; // config read unavailable → treat as account-level\n}\n\nconst adsIdStr = String(adsId || '').trim();\n\n// Build a per-campaign config map scoped to THIS account.\nconst configByCampaign = {};\nlet accountHasManagedIntent = false;\nfor (const r of campaignBudgetConfig) {\n  if (!r || r.campaign_id == null || String(r.campaign_id).trim() === '') continue;\n  // Tombstoned config row (campaign removed in Google Ads). Skip entirely so it\n  // never enters configByCampaign / configuredCampaignIds and never trips the\n  // Phase 4 drift check. Missing/blank `active` is treated as TRUE so pre-migration\n  // rows and any hand-added row keep working.\n  if (String(r.active != null ? r.active : 'TRUE').toUpperCase() === 'FALSE') continue;\n  const rowAcct = r.google_ads_id != null ? String(r.google_ads_id).trim() : '';\n  if (rowAcct !== adsIdStr) continue; // only this account's rows\n  const managed = r.managed === true || String(r.managed).toUpperCase() === 'TRUE';\n  configByCampaign[String(r.campaign_id)] = {\n    budget_dollars: Number(r.budget_dollars) || 0,\n    managed\n  };\n  if (managed) accountHasManagedIntent = true;\n}\n\n// === SHARED BUDGET DETECTION ===\n// Build a map of budgetResource -> [campaignIds] to detect shared budgets.\n// When multiple campaigns share a budget resource, amountMicros is the FULL\n// shared amount on each row. Without dedup, we double/triple-count the\n// account-level daily budget, which breaks severity math and utilization.\n// PHASE 2: built over ALL rawResults so paused campaigns still resolve their\n// budget resource, but `enabledCampaignIds` is tracked separately -- that is the\n// list every downstream calculation must use.\nconst budgetResourceMap = {};\nrawResults.forEach(row => {\n  const resource = row.campaignBudget?.resourceName;\n  const campaignId = row.campaign?.id;\n  const isEnabled =\n    String(row.campaign?.status || 'ENABLED').toUpperCase() === 'ENABLED';\n  if (resource) {\n    if (!budgetResourceMap[resource]) {\n      budgetResourceMap[resource] = {\n        amountMicros: Number(row.campaignBudget?.amountMicros || 0),\n        campaignIds: [],\n        enabledCampaignIds: []\n      };\n    }\n    budgetResourceMap[resource].campaignIds.push(campaignId);\n    if (isEnabled) budgetResourceMap[resource].enabledCampaignIds.push(campaignId);\n  }\n});\n// Deduplicated account-level daily budget: count each budget resource only once,\n// and ONLY resources that still have at least one enabled campaign spending from\n// them. A fully paused budget resource contributes no spend capacity, so counting\n// it inflates the `correctionPercent` denominator and understates severity.\n// It also inflates the `accountMonthlyBudget` fallback below when HubSpot has no\n// budget on file (`totalDailyBudget * daysInMonth`).\nconst totalDailyBudget = Object.values(budgetResourceMap)\n  .filter(entry => entry.enabledCampaignIds.length > 0)\n  .reduce((sum, entry) => sum + entry.amountMicros / 1_000_000, 0);\nconst accountMonthlyBudget = hubspotMonthlyBudget > 0\n  ? hubspotMonthlyBudget\n  : totalDailyBudget * daysInMonth;\nconst accountExpectedSpend = accountMonthlyBudget * expectedPaceRatio;\nconst accountVariancePercent = accountExpectedSpend > 0\n  ? Math.round(((totalActualSpend - accountExpectedSpend) / accountExpectedSpend) * 100)\n  : 0;\n// === CAMPAIGN-LEVEL BUDGET ALLOCATION ===\nconst remainingBudget = accountMonthlyBudget - totalActualSpend;\nconst proposedDailyBudget = Math.max(0, Math.round(remainingBudget / daysRemaining));\n\n// ============================================================================\n// === PHASE 4 — ELIGIBILITY EVALUATION (per account, runs before targets) ===\n// Mirrors the checks already written in `Compute Status`, applied inline so\n// effective_mode is known BEFORE per-campaign targets are computed (Option A).\n// ============================================================================\nlet campaignSteeringEligible = false;\nlet campaignSteeringReason = 'good';       // good | not_managed | incomplete | shared_budget | drift | sum_overshoot\n// PHASE 2: sourced from `enabledResults`, NOT rawResults. The whole Phase 4\n// eligibility block below was written on the assumption that the feed WAS the\n// enabled set. Leaving this on rawResults would make every paused campaign look\n// like an uncovered campaign, flip the account to `incomplete`, and silently\n// drop it out of campaign steering back to account-level pacing.\nconst enabledCampaignIds = enabledResults\n  .map(row => row.campaign?.id)\n  .filter(id => id != null)\n  .map(String);\nconst configuredCampaignIds = Object.keys(configByCampaign);\n\n// PHASE 5: per-campaign drift attribution map (only meaningful for managed accounts)\nlet perCampaignReason = {};\n\nif (!accountHasManagedIntent) {\n  campaignSteeringReason = 'not_managed';\n} else {\n  // 1) Coverage: every ENABLED campaign in the feed must have a config row.\n  //    PHASE 2: the feed is NO LONGER filtered to ENABLED (it excludes REMOVED\n  //    only), so the enabled set is `enabledResults` / `enabledCampaignIds`.\n  const uncovered = enabledCampaignIds.filter(id => !configByCampaign[id]);\n  // 2) Shared budget: any enabled campaign on a shared Google Ads budget → can't steer.\n  // PHASE 2: enabled siblings only. Counting a paused sibling here would falsely\n  // classify a now-sole-enabled campaign as shared-budget and disable steering.\n  const hasSharedBudget = enabledResults.some(row => {\n    const resource = row.campaignBudget?.resourceName;\n    const entry = resource ? budgetResourceMap[resource] : null;\n    return !!entry && entry.enabledCampaignIds.length > 1;\n  });\n  // 3) Drift: a configured campaign no longer exists in the enabled set.\n  //    PHASE 2: `enabledCampaignIds` now genuinely means enabled, so a campaign\n  //    the agent paused still counts as drift -- semantics preserved, which is\n  //    what we want: an operator-configured campaign that is no longer running\n  //    should surface, not be quietly accepted as live.\n  const enabledSet = new Set(enabledCampaignIds);\n  const drift = configuredCampaignIds.some(id => !enabledSet.has(id));\n  // 4) Sum overshoot: operator monthly targets sum above the account budget.\n  const configuredMonthlyTotal = configuredCampaignIds\n    .reduce((s, id) => s + (configByCampaign[id].budget_dollars || 0), 0);\n  const sumOvershoot = accountMonthlyBudget > 0\n    && configuredMonthlyTotal > accountMonthlyBudget;\n\n  // ===== PHASE 5 — PER-CAMPAIGN DRIFT ATTRIBUTION =====\n  // Reason for EACH configured campaign, so the portal can point at the offender\n  // instead of stamping the same account-level reason on every row.\n  const sharedIdsP5 = new Set(\n    enabledResults\n      .filter(row => {                       // PHASE 2: enabled siblings only\n        const res = row.campaignBudget?.resourceName;\n        const entry = res ? budgetResourceMap[res] : null;\n        return !!entry && entry.enabledCampaignIds.length > 1;\n      })\n      .map(row => row.campaign?.id != null ? String(row.campaign.id) : '')\n      .filter(Boolean)\n  );\n  for (const cid of configuredCampaignIds) {\n    if (!enabledSet.has(cid))       perCampaignReason[cid] = 'drift';         // configured, not live\n    else if (sharedIdsP5.has(cid))  perCampaignReason[cid] = 'shared_budget'; // on a shared budget\n    else                            perCampaignReason[cid] = 'ok';            // this one is fine\n  }\n\n  if (uncovered.length > 0)      campaignSteeringReason = 'incomplete';\n  else if (hasSharedBudget)      campaignSteeringReason = 'shared_budget';\n  else if (drift)                campaignSteeringReason = 'drift';\n  else if (sumOvershoot)         campaignSteeringReason = 'sum_overshoot';\n  else {\n    campaignSteeringEligible = true;\n    campaignSteeringReason = 'good';\n  }\n}\n\n// === DAY-OF-WEEK ADJUSTMENT (account-level; applied per campaign at the\n//     FINAL step in Merged Data — proposedDailyBudget stays the BASE) ===\nconst normalDailyAverage = daysInMonth > 0 ? accountMonthlyBudget / daysInMonth : 0;\nconst rawDowAdjustment = DOW_MULTIPLIERS[today.getDay()] || 0;\nconst dowFlags = [];\nlet dowAdjustment = rawDowAdjustment;\n// Bill's end-of-month catch-up rule + symmetric overspend guard:\n// if the required daily pace is far from the normal daily average\n// (>130% behind or <70% ahead), halve the multiplier deviation today.\nconst catchUpActive = normalDailyAverage > 0 && (\n  proposedDailyBudget > 1.3 * normalDailyAverage ||\n  proposedDailyBudget < 0.7 * normalDailyAverage\n);\nif (catchUpActive) {\n  dowAdjustment = dowAdjustment * 0.5;\n  dowFlags.push('CATCH_UP_HALVED');\n}\n// Month-end guard: with <=2 days left there is no tomorrow for the\n// remaining-budget feedback loop to self-correct — suppress DOW entirely.\nif (daysRemaining <= 2) {\n  dowAdjustment = 0;\n  dowFlags.push('MONTH_END_SUPPRESSED');\n}\nconst dowMultiplier = Math.round((1 + dowAdjustment) * 100) / 100;\n// === ESTIMATED YESTERDAY MULTIPLIER (base de-normalization) ===\n// The live budget read from the API this morning embodies YESTERDAY's\n// multiplier. All comparisons must run base-to-base, so divide it out.\nconst yesterday = new Date(today);\nyesterday.setDate(yesterday.getDate() - 1);\nconst yesterdayISO = yesterday.toISOString().split('T')[0];\nlet estimatedYesterdayMultiplier = 1;\nif (yesterdayISO >= DOW_ENABLED_SINCE) {\n  estimatedYesterdayMultiplier = 1 + (DOW_MULTIPLIERS[yesterday.getDay()] || 0);\n}\n// Yesterday was month-end suppressed (its daysRemaining was <= 2), or was\n// the day-1 grace period (no mutate ran) — live budget carries no multiplier.\nif (daysRemaining <= 1 || dayOfMonth <= 2) {\n  estimatedYesterdayMultiplier = 1;\n}\n// PHASE 2: stays on rawResults ON PURPOSE. Paused campaigns must produce a\n// campaign object so they reach `actions.log[]` and keep their daily row in the\n// G Ads Pacing tab + portal. `Merged Data` short-circuits them to NO_CHANGE\n// before any routing logic can act on them.\nconst campaigns = rawResults.map(row => {\n  const rawDailyBudget = Number(row.campaignBudget?.amountMicros || 0) / 1_000_000;\n  const budgetResource = row.campaignBudget?.resourceName;\n  // PHASE 2: count ENABLED siblings only, and never assume the resource is in\n  // the map. Two distinct bugs guarded here:\n  //   (a) counting a paused sibling would keep splitting the shared budget with a\n  //       campaign that can no longer spend, halving `effectiveDailyBudget` for\n  //       the campaign that is actually running;\n  //   (b) `budgetResourceMap[budgetResource].campaignIds` threw outright for any\n  //       campaign whose resource had no entry.\n  // Math.max(..., 1) keeps a fully-paused resource from dividing by zero.\n  const resourceEntry = budgetResource ? budgetResourceMap[budgetResource] : null;\n  const siblingCount = resourceEntry\n    ? Math.max(resourceEntry.enabledCampaignIds.length, 1)\n    : 1;\n  const isSharedBudget = siblingCount > 1;  // PHASE 2: enabled siblings only\n  // effectiveDailyBudget = this campaign's proportional share of the budget resource\n  const effectiveDailyBudget = Math.round(rawDailyBudget / siblingCount);\n  // De-normalized base view of the live budget (strip yesterday's multiplier)\n  const baseCurrentDailyBudget = estimatedYesterdayMultiplier !== 0\n    ? Math.round(effectiveDailyBudget / estimatedYesterdayMultiplier)\n    : effectiveDailyBudget;\n  const actualSpend = Number(row.metrics?.costMicros || 0) / 1_000_000;\n  // Use total account spend for pacing, but distribute the remaining\n  // allowance only across campaigns that are currently enabled.\n  const spendFraction = enabledCampaignSpend > 0\n    ? actualSpend / enabledCampaignSpend\n    : 1 / Math.max(enabledResults.length, 1);  // PHASE 2: enabled set\n\n  const spendShare = Math.round(spendFraction * 100);\n\n  const campaignId = row.campaign?.id != null ? String(row.campaign?.id) : null;\n\n  // ===== PHASE 4 — PER-CAMPAIGN TARGET SELECTION =====\n  // Managed + eligible → pace this campaign toward ITS OWN monthly target\n  // using the same remaining/days-remaining formula the account uses.\n  // Otherwise → the existing account-spend-share split (unchanged behavior).\n  const cfg = campaignId ? configByCampaign[campaignId] : null;\n  let campaignProposedBudget;\n  let campaignSteered = false;\n  if (campaignSteeringEligible && cfg && cfg.managed) {\n    const campaignMonthlyTarget = cfg.budget_dollars || 0;\n    const campaignRemaining = campaignMonthlyTarget - actualSpend;\n    campaignProposedBudget = Math.max(0, Math.round(campaignRemaining / daysRemaining));\n    campaignSteered = true;\n  } else {\n      campaignProposedBudget = Math.round(proposedDailyBudget * spendFraction);\n    }\n\n  return {\n    campaignId: row.campaign?.id,\n    campaignStatus: row.campaign?.status || null,\n    campaignBudgetResource: budgetResource,\n    name: row.campaign?.name || 'Unknown campaign',\n    actualSpend: Math.round(actualSpend),\n    currentDailyBudget: effectiveDailyBudget,\n    baseCurrentDailyBudget,\n    rawBudgetResourceAmount: Math.round(rawDailyBudget),\n    proposedDailyBudget: campaignProposedBudget,\n    searchBudgetLostIS: Number(row.metrics?.searchBudgetLostImpressionShare || 0),\n    spendShare,\n    isSharedBudget,\n    sharedBudgetSiblings: siblingCount,\n    // PHASE 2: total siblings incl. paused, for audit against sharedBudgetSiblings\n    sharedBudgetSiblingsAllStatuses: resourceEntry ? resourceEntry.campaignIds.length : 1,\n    // Phase 4 audit fields\n    campaignSteered,\n    campaignMonthlyTarget: (cfg && cfg.managed) ? (cfg.budget_dollars || 0) : null\n  };\n});\n// === V2 (2026-07-30): ZERO-SPEND FILTER REMOVED — MOVED TO ROUTING ===\n// SUPERSEDES Task 1 (2026-07-23), which dropped enabled $0-MTD campaigns from\n// routing, logging AND the portal in one step.\n//\n// Mark's call 2026-07-30: a campaign that is RUNNING belongs in the data even if\n// it has not spent yet — a campaign launched yesterday is not a dead test\n// campaign, and hiding it made new work invisible.\n//\n// CRITICAL — this filter was doing two jobs, and only one of them was display.\n// It was also the only thing stopping a $0-spend campaign from being routed.\n// Budgets are allocated by share of spend, so a $0 campaign proposes $0, and\n// damping converts that into a 10-30% cut rather than a stop: $50 -> $45 -> $40,\n// every single morning, with no error anywhere. Removing this filter WITHOUT the\n// `ZERO_SPEND_NO_ROUTING` short-circuit in `Merged Data` re-arms exactly that.\n// The two changes are a pair. Do not ship one alone.\nconst activeCampaigns = campaigns;\n\n// === PROJECTION-BASED SEVERITY MODEL ===\nconst dailyRunRate = dayOfMonth > 0 ? totalActualSpend / dayOfMonth : 0;\nconst projectedTotal = totalActualSpend + (dailyRunRate * daysRemaining);\nconst projectedOvershoot = projectedTotal - accountMonthlyBudget;\nconst dailyCorrectionNeeded = daysRemaining > 0\n  ? projectedOvershoot / daysRemaining\n  : projectedOvershoot;\nconst currentAccountDailyBudget = totalDailyBudget > 0 ? totalDailyBudget : 1;\nlet correctionPercent = Math.abs(dailyCorrectionNeeded) / currentAccountDailyBudget;\nconst direction = projectedOvershoot > 0 ? 'over' : 'under';\nlet severity;\nif (correctionPercent < 0.05) {\n  severity = 'OK';\n} else if (direction === 'over' && correctionPercent >= 0.30) {\n  severity = 'CRITICAL';\n} else if (direction === 'over' && correctionPercent >= 0.15) {\n  severity = 'ALERT';\n} else if (direction === 'over') {\n  severity = 'AUTO';\n} else if (direction === 'under' && correctionPercent >= 0.15) {\n  severity = 'UNDERPACE';\n} else {\n  severity = 'AUTO';\n}\n\n// === V2 (2026-07-30): ALL CAMPAIGNS OFF ===\n// Nothing enabled — cap-paused, or the client switched everything off. Every\n// budget resource is excluded from `totalDailyBudget`, so it is 0,\n// `currentAccountDailyBudget` falls back to 1, and correctionPercent explodes.\n// Observed live: 12,185% on Dakota Family Dentistry, 2026-07-30, which drove a\n// bogus CRITICAL. Nothing mutated (routing is short-circuited downstream), but\n// CRITICAL sets the damping cap to 30%, and that cap would govern the first\n// campaign re-enabled. There is nothing to correct when nothing can spend.\n// NOTE: this is a PRE-EXISTING bug, not introduced by the paused-campaign work.\n// A fully-off account hit it before too; it was just invisible because the feed\n// returned zero rows and no campaign reached the log.\nconst noEnabledCampaigns = enabledResults.length === 0;\nif (noEnabledCampaigns) {\n  correctionPercent = 0;\n  severity = 'OK';\n}\n\n// === CLIENT-FACING DISPLAY STATUS (5 symmetric tiers) ===\n// Basis: how far the account is over/under its pace vs the daily target\n// (= month-to-date variance %, the figure shown on the account). Decoupled\n// from routing `severity` — display only, drives NO money decision.\n// Bands (\">\" = higher tier): |var| <= 10% On Track; 10-20% Under/Overpacing\n// (20% stays mild); > 20% Significantly. + = over target, - = under.\nconst displayVariance = accountVariancePercent;      // signed integer %, + over / - under\nconst displayVarianceMag = Math.abs(displayVariance);\nlet displayStatus;\nif (displayVarianceMag <= 10) {\n  displayStatus = 'On Track';\n} else if (displayVariance > 0) {\n  displayStatus = displayVarianceMag > 20 ? 'Significantly Overpacing' : 'Overpacing';\n} else {\n  displayStatus = displayVarianceMag > 20 ? 'Significantly Underpacing' : 'Underpacing';\n}\n// Damping caps by severity\nconst dampingCaps = {\n  CRITICAL: 0.30,\n  ALERT: 0.20,\n  AUTO: 0.10,\n  UNDERPACE: 0.20,\n  OK: 0.05\n};\nconst maxChangePercent = dampingCaps[severity] || 0.10;\nfunction dampAdjustment(currentBudget, rawProposed, cap) {\n  if (currentBudget === 0) return rawProposed;\n  const ceiling = currentBudget * (1 + cap);\n  const floor = currentBudget * (1 - cap);\n  return Math.round(Math.min(ceiling, Math.max(floor, rawProposed)));\n}\n// DAMPING NOW CLAMPS AGAINST THE DE-NORMALIZED BASE-CURRENT, not the\n// live (multiplied) budget — otherwise yesterday's multiplier corrupts\n// today's base and the DOW swing gets eaten by the damping cap.\nconst dampedCampaigns = activeCampaigns.map(c => {\n  const dampedBudget = dampAdjustment(c.baseCurrentDailyBudget, c.proposedDailyBudget, maxChangePercent);\n  return {\n    ...c,\n    rawProposedDailyBudget: c.proposedDailyBudget,\n    proposedDailyBudget: dampedBudget,\n    dampedFrom: c.proposedDailyBudget !== dampedBudget ? c.proposedDailyBudget : null\n  };\n});\nreturn {\n  json: {\n    practiceName,\n    adsId,\n    severity,\n    displayStatus,   // client-facing 5-tier pacing label (display only, not routing)\n    date: todayISO,\n    // Phase 4: account-level steering mode (drives XOR + portal status)\n    campaignSteering: {\n      eligible: campaignSteeringEligible,\n      effectiveMode: campaignSteeringEligible ? 'campaign' : 'account',\n      statusReason: campaignSteeringReason,\n      managedIntent: accountHasManagedIntent,\n      configuredCount: configuredCampaignIds.length,\n      enabledCount: enabledCampaignIds.length,\n      perCampaignReason   // PHASE 5: { campaign_id: 'drift'|'shared_budget'|'ok' }\n    },\n    pacing: {\n      monthlyBudget: Math.round(accountMonthlyBudget),\n      totalActualSpend: Math.round(totalActualSpend),\n      expectedSpend: Math.round(accountExpectedSpend),\n      variancePercent: accountVariancePercent,\n      remainingBudget: Math.round(remainingBudget),\n      currentDailyBudget: Math.round(totalDailyBudget),\n      proposedDailyBudget,\n      flagged: severity !== 'OK',\n      spendSource,\n      enabledCampaignSpend: Math.round(enabledCampaignSpend),\n      // V2: money behind campaigns that are switched off. Not displayed per\n      // campaign, but never silently dropped.\n      nonEnabledSpend: Math.round(nonEnabledSpend),\n      nonEnabledCampaignCount,\n      unattributedSpend: Math.round(totalActualSpend - enabledCampaignSpend - nonEnabledSpend),\n      allCampaignsPaused: noEnabledCampaigns\n    },\n    projection: {\n      dailyRunRate: Math.round(dailyRunRate),\n      projectedTotal: Math.round(projectedTotal),\n      projectedOvershoot: Math.round(projectedOvershoot),\n      dailyCorrectionNeeded: Math.round(dailyCorrectionNeeded),\n      correctionPercent: Math.round(correctionPercent * 100),\n      direction,\n      maxChangePercent: Math.round(maxChangePercent * 100)\n    },\n    dateContext: {\n      dayOfMonth,\n      daysInMonth,\n      daysRemaining,\n      expectedPacePercent: Math.round(expectedPaceRatio * 100)\n    },\n    dow: {\n      multiplier: dowMultiplier,\n      rawAdjustment: rawDowAdjustment,\n      catchUpActive,\n      flags: dowFlags,\n      estimatedYesterdayMultiplier,\n      normalDailyAverage: Math.round(normalDailyAverage)\n    },\n    campaigns: dampedCampaigns\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         1552,
-        368
+        336
       ],
       "id": "53cd7118-782a-400a-b3fa-0c4dd28a9725",
       "name": "Data for Pacing Agent"
@@ -202,7 +202,7 @@
       "typeVersion": 3.2,
       "position": [
         2000,
-        464
+        432
       ],
       "id": "67816d9c-ef5c-4edc-b6ce-fe041b755c29",
       "name": "Merge"
@@ -287,7 +287,7 @@
       "typeVersion": 3.4,
       "position": [
         1776,
-        368
+        336
       ],
       "id": "d6e34eb7-beb2-4c58-a244-d4b816c59ede",
       "name": "Edit Fields1"
@@ -381,7 +381,7 @@
       "typeVersion": 3.4,
       "position": [
         2448,
-        176
+        144
       ],
       "id": "3d842861-01b8-4689-8aed-9bba5c9b8f49",
       "name": "Switch"
@@ -389,13 +389,13 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const account = $input.item.json;\n\n// Yesterday data — campaign-level if available, account-level as fallback\nconst yesterdayAccountBudget = Number(account.yesterdays_account_proposed_daily_budget) || 0;\nconst yesterdayCampaigns = account.yesterdays_campaigns || {};\n\n// 7-day spend data from API\nconst sevenDayCampaigns = account.sevenDayCampaigns || [];\n\n// === BUILD 7-DAY UTILIZATION MAP ===\n// Structure: { campaignId: [{ date, spend, budget, utilization }, ...] }\nconst utilizationMap = {};\n\nfor (const row of sevenDayCampaigns) {\n  const cId = String(row.campaign_id);\n  if (!utilizationMap[cId]) {\n    utilizationMap[cId] = [];\n  }\n  const spend = Number(row.cost_micros || 0) / 1_000_000;\n  const budget = Number(row.budget_micros || 0) / 1_000_000;\n  const utilization = budget > 0 ? spend / budget : 0;\n  utilizationMap[cId].push({\n    date: row.date,\n    spend,\n    budget,\n    utilization\n  });\n}\n\n// Determine chronic demand-limited status per campaign\n// Rule: < 70% utilization for ALL of the last 7 days\nfunction isChronicDemandLimited(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length < 7) return false; // not enough data to judge\n  return days.every(d => d.utilization < 0.70);\n}\n\n// Get yesterday's utilization from the 7-day data\nfunction getYesterdayUtilization(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length === 0) return null;\n  // Sort by date descending, take the most recent\n  const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date));\n  return sorted[0]; // most recent day in the 7-day window\n}\n// Get 7-day utilization\nfunction getSevenDayAvgUtilization(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length === 0) return null;\n  const totalUtil = days.reduce((sum, d) => sum + d.utilization, 0);\n  return Math.round((totalUtil / days.length) * 100);\n}\n\n// === DAY-1-OF-MONTH GRACE PERIOD ===\n// On the 1st, $0 spend makes every account look UNDERPACE/CRITICAL.\n// Skip all classification and recommendation logic — just log and move on.\nif (account.dateContext.dayOfMonth <= 1) {\n  const graceCampaigns = (account.campaigns || []).map(c => {\n    const cId = String(c.campaignId);\n    return {\n      ...c,\n      isBudgetLimited: false,\n      isChronicDemandLimited: false,\n      classification: null,\n      budgetLostIS: 0,\n      yesterdayUtilization: null,\n      sevenDayAvgUtilization: getSevenDayAvgUtilization(cId),\n      utilizationDays: (utilizationMap[cId] || []).length,\n      practiceName: account.practiceName,\n      adsId: account.adsId,\n      yesterdayAccountBudget,\n      yesterdayCampaignBudget: 0,\n      campaignProposedMultiple: null,\n      accountProposedMultiple: null,\n      variancePercent: account.pacing.variancePercent,\n      correctionPercent: account.projection.correctionPercent,\n      conflictsWithPacing: false,\n      recommendationType: 'NO_CHANGE',\n      skipReason: 'MONTH_START_GRACE',\n      dowMultiplier: 1,\n      dowFlags: 'MONTH_START_GRACE',\n      finalDailyBudget: c.proposedDailyBudget\n    };\n  });\n\n  return {\n    json: {\n      practiceName: account.practiceName,\n      adsId: account.adsId,\n      severity: 'OK',\n      displayStatus: 'On Track',   // grace period: force On Track (spend is $0 on the 1st)\n      date: account.date,\n      pacing: account.pacing,\n      projection: account.projection,\n      dateContext: account.dateContext,\n      dow: account.dow,\n      accountOnTrack: true,\n      allDemandLimited: false,\n      anyBudgetLimited: false,\n      skipReason: 'MONTH_START_GRACE',\n      campaignSteering: account.campaignSteering || {\n        eligible: false, effectiveMode: 'account', statusReason: 'not_managed'\n      },\n      actions: {\n        autoApply: [],\n        needsApproval: [],\n        pauseList: [],\n        log: graceCampaigns\n      },\n      summary: { autoApplyCount: 0, approvalCount: 0, pauseCount: 0 }\n    }\n  };\n}\n\n// === ACCOUNT-LEVEL PACING OVERRIDE (Bill's Rule 4) ===\n// If 95-105% pace MTD, don't touch any budgets\nconst accountPacePercent = account.pacing.expectedSpend > 0\n  ? (account.pacing.totalActualSpend / account.pacing.expectedSpend) * 100\n  : 100;\nconst accountOnTrack = accountPacePercent >= 95 && accountPacePercent <= 105;\n\n// === CLASSIFY EACH CAMPAIGN ===\nconst classifiedCampaigns = account.campaigns.map(c => {\n  const cId = String(c.campaignId);\n\n  // Budget-limited signals (Bill's Rule 1)\n  const budgetLostIS = c.searchBudgetLostIS || 0;\n  const yesterdayUtil = getYesterdayUtilization(cId);\n  const yesterdayUtilPercent = yesterdayUtil ? yesterdayUtil.utilization : 0;\n\n  const sevenDayUtil = getSevenDayAvgUtilization(cId);\n  const isBudgetLimited = budgetLostIS > 0.05 \n    || yesterdayUtilPercent >= 0.95\n    || (sevenDayUtil !== null && sevenDayUtil >= 95);\n  const chronicDemandLimited = isChronicDemandLimited(cId);\n\n  return {\n    ...c,\n    isBudgetLimited,\n    isChronicDemandLimited: chronicDemandLimited,\n    classification: isBudgetLimited ? 'BUDGET_LIMITED' : 'DEMAND_LIMITED',\n    budgetLostIS: Math.round(budgetLostIS * 100) / 100,\n    yesterdayUtilization: yesterdayUtil\n      ? Math.round(yesterdayUtil.utilization * 100)\n      : null,\n    sevenDayAvgUtilization: getSevenDayAvgUtilization(cId),\n    utilizationDays: (utilizationMap[cId] || []).length\n  };\n});\n\nconst anyBudgetLimited = classifiedCampaigns.some(c => c.isBudgetLimited);\nconst allDemandLimited = classifiedCampaigns.every(c => !c.isBudgetLimited);\n\n// === PHASE 4 — CAMPAIGN STEERING XOR (full bypass) ===\n// When an account is managed + eligible, campaign-level steering is the ONLY\n// mutation path. The account-level severity gates (Rule 4 on-track freeze,\n// Rule 2 demand-side INVESTIGATE) and account-direction routing are bypassed;\n// each campaign routes purely on its own target-vs-current delta. Account\n// correctionPercent/severity remain computed for display only.\n\n// === TASK 2 (2026-07-23): ACCOUNT BUDGET-CAP PAUSE ===\n// MTD spend has reached/exceeded the monthly budget → hard-stop the whole account:\n// every enabled campaign routes to PAUSE_CAMPAIGN, regardless of severity or\n// campaign-steering. (Day-1 grace handled above.)\nconst capReached =\n  Number(account.pacing.monthlyBudget) > 0 &&\n  Number(account.pacing.totalActualSpend) >= Number(account.pacing.monthlyBudget);\nconst campaignSteeringEligible = !!(account.campaignSteering && account.campaignSteering.eligible);\n\n// === DETERMINE EFFECTIVE SEVERITY ===\nlet effectiveSeverity = account.severity;\nlet skipReason = null;\n\nif (!campaignSteeringEligible) {\n  if (accountOnTrack) {\n    // Rule 4: Account on track — no changes\n    effectiveSeverity = 'OK';\n    skipReason = 'ACCOUNT_ON_TRACK';\n  } else if (account.projection.direction === 'under' && allDemandLimited) {\n    // Rule 2: Underpacing but no campaign is budget-limited\n    effectiveSeverity = 'INVESTIGATE';\n    skipReason = 'DEMAND_SIDE_ISSUE';\n  }\n}\n\n// === BUILD ACTIONS ===\nconst actions = {\n  autoApply: [],\n  needsApproval: [],\n  pauseList: [],\n  log: []\n};\n\n// Account-level multiple — kept for logging only\nconst todayProposed = account.pacing.proposedDailyBudget;\nconst accountProposedMultiple = yesterdayAccountBudget > 0\n  ? todayProposed / yesterdayAccountBudget\n  : null;\n\nclassifiedCampaigns.forEach(c => {\n  const cId = String(c.campaignId);\n  const yesterdayCampaign = yesterdayCampaigns[cId] || null;\n  const yesterdayCampaignBudget = yesterdayCampaign\n    ? yesterdayCampaign.proposedDailyBudget\n    : 0;\n\n  // All change/direction comparisons run against the DE-NORMALIZED base\n  // view of the live budget. The raw live budget embodies yesterday's\n  // DOW multiplier; comparing the base proposal against it would make\n  // intended DOW swings look like pacing changes.\n  const compareBudget = (c.baseCurrentDailyBudget != null)\n    ? c.baseCurrentDailyBudget\n    : c.currentDailyBudget;\n\n  // Per-campaign escalation check (yesterday's logged budget is already a base)\n  const campaignProposedMultiple = yesterdayCampaignBudget > 0\n    ? c.proposedDailyBudget / yesterdayCampaignBudget\n    : null;\n  const campaignExceedsEscalation = campaignProposedMultiple !== null\n    && (campaignProposedMultiple >= 2 || campaignProposedMultiple <= 0.5);\n\n  // Meaningful change check\n  const dollarChange = Math.abs(c.proposedDailyBudget - compareBudget);\n  const percentChange = compareBudget > 0\n    ? Math.abs((c.proposedDailyBudget / compareBudget) - 1)\n    : (c.proposedDailyBudget > 0 ? 1 : 0);\n  const meaningfulChange = percentChange >= 0.10 || dollarChange >= 3;\n\n  // Direction consistency check\n  // PHASE 4: for steered campaigns this account-direction conflict concept\n  // does not apply — each campaign moves toward its own target. Force false.\n  const accountDirection = account.projection.direction;\n  const campaignDirection = c.proposedDailyBudget > compareBudget ? 'increase' : 'decrease';\n  const conflictsWithPacing = !campaignSteeringEligible && meaningfulChange && (\n    (accountDirection === 'over' && campaignDirection === 'increase') ||\n    (accountDirection === 'under' && campaignDirection === 'decrease')\n  );\n\n  let recommendationType;\n  let campaignSkipReason = skipReason; // inherit account-level skip if set\n\n  if (capReached) {\n    // Account cap hit — hard stop this campaign.\n    recommendationType = 'PAUSE_CAMPAIGN';\n    campaignSkipReason = 'BUDGET_CAP_REACHED';\n  } else if (campaignSteeringEligible) {\n    // === PHASE 4 — CAMPAIGN-STEERED ROUTING ===\n    // Route on this campaign's own target-vs-current delta. Meaningful moves\n    // go to AUTO increase/decrease; the 2x escalation safety net still forces\n    // approval. Damping (upstream) already caps the per-day step size, and the\n    // auto-decrease promotion + shared-budget grouping below still apply.\n    if (!meaningfulChange) {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n    } else if (campaignExceedsEscalation) {\n      recommendationType = campaignDirection === 'increase'\n        ? 'BUDGET_INCREASE_APPROVAL'\n        : 'BUDGET_DECREASE_APPROVAL';\n    } else {\n      recommendationType = campaignDirection === 'increase'\n        ? 'BUDGET_INCREASE'\n        : 'BUDGET_DECREASE';\n    }\n\n  } else if (skipReason === 'ACCOUNT_ON_TRACK') {\n    // Rule 4: Account on track — no PACING changes for anyone.\n    // (Day-of-week shaping is applied later, in the DOW final transform.)\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'ACCOUNT_ON_TRACK';\n\n  } else if (skipReason === 'DEMAND_SIDE_ISSUE') {\n    // Rule 2: All demand-limited — no budget changes\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'DEMAND_SIDE_ISSUE';\n\n  } else if (account.projection.direction === 'under' && !c.isBudgetLimited && !c.isChronicDemandLimited) {\n    // Rule 3 (partial): Underpacing, this campaign is demand-limited but NOT chronic — leave alone\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'DEMAND_LIMITED_NO_CHANGE';\n\n  } else if (account.projection.direction === 'under' && !c.isBudgetLimited && c.isChronicDemandLimited) {\n    // Rule 3 (partial): Chronic demand-limited sibling — eligible donor\n    // Only donate if there ARE budget-limited siblings that need it\n    if (anyBudgetLimited && meaningfulChange) {\n      recommendationType = 'BUDGET_DECREASE_APPROVAL';\n      campaignSkipReason = 'CHRONIC_DEMAND_LIMITED_DONOR';\n    } else {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING';\n    }\n\n  } else if (account.projection.direction === 'under' && c.isBudgetLimited) {\n    // Rule 3 (core): Budget-limited campaign on an underpacing account — INCREASE\n    if (meaningfulChange) {\n      recommendationType = 'BUDGET_INCREASE';\n      campaignSkipReason = null;\n    } else {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'BUDGET_LIMITED_BUT_CHANGE_TOO_SMALL';\n    }\n\n  } else if (effectiveSeverity === 'CRITICAL' && meaningfulChange) {\n    // Overpacing: CRITICAL — aggressive action\n    recommendationType = c.proposedDailyBudget === 0\n      ? 'PAUSE_CAMPAIGN'\n      : (c.proposedDailyBudget > compareBudget\n          ? 'BUDGET_INCREASE_APPROVAL'\n          : 'BUDGET_DECREASE_APPROVAL');\n\n  } else if (conflictsWithPacing) {\n    // Direction conflict — force to approval\n    recommendationType = campaignDirection === 'increase'\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if (campaignExceedsEscalation) {\n    // 2x escalation safety net\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if (effectiveSeverity === 'ALERT' && meaningfulChange) {\n    // ALERT: meaningful changes need approval\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if ((effectiveSeverity === 'AUTO' || effectiveSeverity === 'UNDERPACE') && meaningfulChange) {\n    // AUTO/UNDERPACE with budget-limited campaigns already handled above\n    // This catches overpacing AUTO scenarios\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE'\n      : 'BUDGET_DECREASE';\n\n  } else {\n    recommendationType = 'NO_CHANGE';\n  }\n\n  // Bill's Rule 3: Never cut a budget-limited campaign on an underpacing account.\n  // PHASE 4: this is an account-direction rule; it does not apply under campaign\n  // steering, where a campaign over its OWN target should be cut regardless.\n  if (!campaignSteeringEligible\n      && c.isBudgetLimited\n      && account.projection.direction === 'under'\n      && recommendationType !== 'NO_CHANGE'\n      && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'BUDGET_LIMITED_NO_DECREASE';\n  }\n\n  // Catch-all: ensure every NO_CHANGE has a skip reason\n  if (recommendationType === 'NO_CHANGE' && !campaignSkipReason) {\n    campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n  }\n\n  // Reconcile label with actual dollar direction (base vs base)\n  if (recommendationType === 'BUDGET_INCREASE' && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'BUDGET_DECREASE';\n  } else if (recommendationType === 'BUDGET_DECREASE' && c.proposedDailyBudget > compareBudget) {\n    recommendationType = 'BUDGET_INCREASE';\n  } else if (recommendationType === 'BUDGET_INCREASE_APPROVAL' && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'BUDGET_DECREASE_APPROVAL';\n  } else if (recommendationType === 'BUDGET_DECREASE_APPROVAL' && c.proposedDailyBudget > compareBudget) {\n    recommendationType = 'BUDGET_INCREASE_APPROVAL';\n  }\n\n  // If proposed equals base-current, it's NO_CHANGE regardless\n  if (c.proposedDailyBudget === compareBudget) {\n    recommendationType = 'NO_CHANGE';\n    if (!campaignSkipReason) campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n  }\n\n  // === BILL'S AUTO-DECREASE RULE (June 2026) ===\n  // Decreases with an applied cut of ≤30% auto-apply instead of routing to approval.\n  // Upstream damping already caps single-day cuts (CRITICAL ±30%, ALERT ±20%),\n  // so this promotes most CRITICAL/ALERT decrease approvals to auto-apply.\n  // Safety flags still force approval: direction conflicts, 2x escalation,\n  // and chronic demand-limited donor cuts (Rule 3 reallocations).\n  // DOW NOTE: measured against the DE-NORMALIZED base (compareBudget), not the\n  // live budget — otherwise yesterday's multiplier distorts the ≤30% test.\n  const appliedDecreasePercent = (compareBudget > 0 && c.proposedDailyBudget < compareBudget)\n    ? (compareBudget - c.proposedDailyBudget) / compareBudget\n    : 0;\n\n  let autoDecreasePromoted = false;\n\n  // Promote when the cut is no deeper than the rounded 30% damping floor.\n  // Comparing dollars (not percent) avoids rounding artifacts on small budgets —\n  // e.g., $42 × 0.70 = $29.40 rounds to $29, a 30.95% cut that a strict\n  // percent check would wrongly reject.\n  const thirtyPercentFloor = Math.round(compareBudget * 0.70);\n\n  if (recommendationType === 'BUDGET_DECREASE_APPROVAL'\n      && appliedDecreasePercent > 0\n      && c.proposedDailyBudget >= thirtyPercentFloor\n      && !conflictsWithPacing\n      && !campaignExceedsEscalation\n      && campaignSkipReason !== 'CHRONIC_DEMAND_LIMITED_DONOR') {\n    recommendationType = 'BUDGET_DECREASE';\n    autoDecreasePromoted = true;\n  }\n\n  const campaignAction = {\n    ...c,\n    practiceName: account.practiceName,\n    adsId: account.adsId,\n    yesterdayAccountBudget,\n    yesterdayCampaignBudget,\n    campaignProposedMultiple: campaignProposedMultiple !== null\n      ? Math.round(campaignProposedMultiple * 100) / 100\n      : null,\n    accountProposedMultiple: accountProposedMultiple !== null\n      ? Math.round(accountProposedMultiple * 100) / 100\n      : null,\n    variancePercent: account.pacing.variancePercent,\n    correctionPercent: account.projection.correctionPercent,\n    conflictsWithPacing,\n    appliedDecreasePercent: Math.round(appliedDecreasePercent * 100),\n    autoDecreasePromoted,\n    recommendationType,\n    skipReason: campaignSkipReason,\n    pauseReason: recommendationType === 'PAUSE_CAMPAIGN'\n      ? (campaignSkipReason === 'BUDGET_CAP_REACHED' ? 'BUDGET_CAP_REACHED' : 'MONTH_END_ZERO')\n      : null\n  };\n\n  // Route to action buckets\n  if (recommendationType === 'PAUSE_CAMPAIGN') {\n    actions.pauseList.push(campaignAction);\n  } else if (recommendationType.includes('APPROVAL')) {\n    actions.needsApproval.push(campaignAction);\n  } else if (recommendationType === 'BUDGET_INCREASE' || recommendationType === 'BUDGET_DECREASE') {\n    actions.autoApply.push(campaignAction);\n  }\n\n  actions.log.push(campaignAction);\n});\n\n// === SHARED BUDGET RECOMMENDATION GROUPING ===\n// Siblings sharing a budget resource must get the same recommendation.\n// Run after all individual recommendations are set, before label reconciliation.\n\nconst budgetGroups = {};\nactions.log.forEach((c, idx) => {\n  if (c.isSharedBudget && c.campaignBudgetResource) {\n    if (!budgetGroups[c.campaignBudgetResource]) {\n      budgetGroups[c.campaignBudgetResource] = [];\n    }\n    budgetGroups[c.campaignBudgetResource].push(idx);\n  }\n});\n\nfor (const [resource, indices] of Object.entries(budgetGroups)) {\n  if (indices.length < 2) continue;\n\n  const siblings = indices.map(i => actions.log[i]);\n  const recTypes = siblings.map(s => s.recommendationType);\n  const directions = siblings.map(s => {\n    if (s.recommendationType === 'NO_CHANGE') return 'none';\n    const cmp = (s.baseCurrentDailyBudget != null) ? s.baseCurrentDailyBudget : s.currentDailyBudget;\n    return s.proposedDailyBudget > cmp ? 'increase' : 'decrease';\n  });\n\n  const uniqueDirections = [...new Set(directions.filter(d => d !== 'none'))];\n  const anyApproval = recTypes.some(r => r.includes('APPROVAL'));\n  const anyPause = recTypes.some(r => r === 'PAUSE_CAMPAIGN');\n\n  let groupRec;\n  let groupNote;\n\n  if (anyPause) {\n    // If any sibling wants to pause, escalate the whole group to approval\n    groupRec = 'BUDGET_DECREASE_APPROVAL';\n    groupNote = 'Shared budget — sibling campaign flagged for pause, group routed to approval';\n  } else if (uniqueDirections.length > 1) {\n    // Conflicting directions — default to NO_CHANGE\n    groupRec = 'NO_CHANGE';\n    groupNote = 'Shared budget — sibling campaigns disagree on direction, no change applied';\n  } else if (uniqueDirections.length === 1 && anyApproval) {\n    // Same direction but at least one needs approval — whole group needs approval\n    groupRec = uniqueDirections[0] === 'increase'\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n    groupNote = 'Shared budget — grouped recommendation requires approval';\n  } else if (uniqueDirections.length === 1) {\n    // Same direction, all auto — keep it\n    groupRec = uniqueDirections[0] === 'increase'\n      ? 'BUDGET_INCREASE'\n      : 'BUDGET_DECREASE';\n    groupNote = 'Shared budget — siblings agree on direction';\n  } else {\n    // All NO_CHANGE already\n    groupRec = 'NO_CHANGE';\n    groupNote = 'Shared budget — no changes needed';\n  }\n\n  // Apply unified recommendation to all siblings\n  for (const idx of indices) {\n    const c = actions.log[idx];\n    c.recommendationType = groupRec;\n    c.sharedBudgetNote = groupNote;\n\n    if (groupRec === 'NO_CHANGE' && !c.skipReason) {\n      c.skipReason = 'SHARED_BUDGET_CONFLICT';\n    }\n  }\n}\n\n// === DAY-OF-WEEK FINAL TRANSFORM ===\n// Applied LAST: after all pacing logic, damping, routing, and shared-budget\n// grouping. proposedDailyBudget remains the BASE everywhere upstream and in\n// the sheet; finalDailyBudget is the only value the mutate call may use.\n\nconst accountDow = account.dow || { multiplier: 1, flags: [] };\nconst dowM = accountDow.multiplier || 1;\n\n// Rows that must never be converted to a DOW adjustment\nconst DOW_CONVERT_EXCLUSIONS = ['MONTH_START_GRACE', 'SHARED_BUDGET_CONFLICT'];\n\nactions.log.forEach(c => {\n  const isAction = ['BUDGET_INCREASE','BUDGET_DECREASE',\n                    'BUDGET_INCREASE_APPROVAL','BUDGET_DECREASE_APPROVAL'].includes(c.recommendationType);\n  const base = isAction\n    ? c.proposedDailyBudget\n    : ((c.baseCurrentDailyBudget != null) ? c.baseCurrentDailyBudget : c.currentDailyBudget);\n\n  // Shape the base, then hard-clamp: never outside 0.55x–1.55x of base\n  let final = Math.round(base * dowM);\n  const ceiling = Math.round(base * 1.55);\n  const floor = Math.round(base * 0.55);\n  final = Math.min(ceiling, Math.max(floor, final));\n\n  // Account-level safety guard:\n  // On an overpacing account, DOW shaping must not turn a pacing reduction\n  // into an increase above the budget currently live in Google Ads.\n  // Campaign-steered accounts are excluded because each campaign follows\n  // its own monthly target.\n  const overpacingAccountGuard =\n    !campaignSteeringEligible &&\n    account.projection?.direction === 'over';\n\n  if (overpacingAccountGuard && final > c.currentDailyBudget) {\n    final = c.currentDailyBudget;\n    c.dowGuardApplied = true;\n  } else {\n    c.dowGuardApplied = false;\n  }\n\n  c.dowMultiplier = dowM;\n  c.dowFlags = (accountDow.flags || []).join('|');\n  c.finalDailyBudget = final;\n\n  // Pause rows carry no budget change\n  if (c.recommendationType === 'PAUSE_CAMPAIGN') {\n    c.finalDailyBudget = base;\n    return;\n  }\n\n  // If the overpacing guard reduced a proposed decrease to the current live\n// budget, there is no actual dollar change left to apply.\nconst isDecreaseRecommendation = [\n  'BUDGET_DECREASE',\n  'BUDGET_DECREASE_APPROVAL'\n].includes(c.recommendationType);\n\nif (\n  overpacingAccountGuard &&\n  isDecreaseRecommendation &&\n  c.finalDailyBudget >= c.currentDailyBudget\n) {\n  c.recommendationType = 'NO_CHANGE';\n  c.skipReason = 'DOW_CLAMPED_OVERPACE_NO_CHANGE';\n  c.dowNote =\n    'DOW increase suppressed because the account is overpacing';\n  return;\n}\n\n  // Convert eligible NO_CHANGE rows to DOW_ADJUSTMENT when the shaped\n  // budget meaningfully differs from the budget that is LIVE right now.\n  // This is what lets the daily shape fire on ACCOUNT_ON_TRACK days\n  // (Bill's call: allocate toward converting days even when pacing is fine).\n  if (c.recommendationType === 'NO_CHANGE'\n      && !DOW_CONVERT_EXCLUSIONS.includes(c.skipReason)) {\n    const liveBudget = c.currentDailyBudget;\n    const dollarDelta = Math.abs(final - liveBudget);\n    const pctDelta = liveBudget > 0 ? dollarDelta / liveBudget : (final > 0 ? 1 : 0);\n    if (dollarDelta >= 3 || pctDelta >= 0.05) {\n      c.recommendationType = 'DOW_ADJUSTMENT';\n      c.dowNote = 'Day-of-week shaping: base $' + base + ' x ' + dowM + ' -> $' + final;\n    }\n  }\n});\n\n// Rebuild action buckets after shared budget grouping + DOW transform\nactions.autoApply = [];\nactions.needsApproval = [];\nactions.pauseList = [];\n\nactions.log.forEach(c => {\n  if (c.recommendationType === 'PAUSE_CAMPAIGN') {\n    actions.pauseList.push(c);\n  } else if (c.recommendationType.includes('APPROVAL')) {\n    actions.needsApproval.push(c);\n  } else if (c.recommendationType === 'BUDGET_INCREASE'\n      || c.recommendationType === 'BUDGET_DECREASE'\n      || c.recommendationType === 'DOW_ADJUSTMENT') {\n    actions.autoApply.push(c);\n  }\n});\n\n// INVESTIGATE: off-pace but nothing actionable (original logic preserved as fallback)\nconst pacingAutoApply = actions.autoApply.filter(c => c.recommendationType !== 'DOW_ADJUSTMENT');\nconst nothingToAct =\n  pacingAutoApply.length === 0 &&\n  actions.needsApproval.length === 0 &&\n  actions.pauseList.length === 0;\n\nconst isOffPace = effectiveSeverity !== 'OK' && effectiveSeverity !== 'INVESTIGATE';\n\nconst finalSeverity = (nothingToAct && isOffPace)\n  ? 'INVESTIGATE'\n  : effectiveSeverity;\n\nreturn {\n  json: {\n    practiceName: account.practiceName,\n    adsId: account.adsId,\n    severity: finalSeverity,\n    displayStatus: account.displayStatus,   // display-only, untouched by routing (INVESTIGATE etc.)\n    date: account.date,\n    dow: account.dow,\n    pacing: account.pacing,\n    projection: account.projection,\n    dateContext: account.dateContext,\n    accountOnTrack,\n    allDemandLimited,\n    anyBudgetLimited,\n    skipReason,\n    // Phase 4: pass steering mode through for the portal + status writer\n    campaignSteering: account.campaignSteering || {\n      eligible: false, effectiveMode: 'account', statusReason: 'not_managed'\n    },\n    actions,\n    summary: {\n      autoApplyCount: actions.autoApply.length,\n      approvalCount: actions.needsApproval.length,\n      pauseCount: actions.pauseList.length\n    }\n  }\n};\n"
+        "jsCode": "const account = $input.item.json;\n\n// === HOURLY CAP-PAUSE — PHASE 1 (2026-07-30): RUN MODE ===\n// The Schedule Trigger now fires every hour. Only the 6 AM run is a full\n// \"budget run\"; every other hour is a PAUSE_ONLY safety sweep.\n//\n// Computed here rather than in a Set node after the trigger because the manual\n// trigger bypasses that node entirely and `$('Run Mode')` would fail to resolve.\n//\n// Timezone is pinned to America/New_York to match `Add Campaign Logs`'\n// Run Date column ($now.setZone('America/New_York')). If those two ever\n// disagree, the log-dedup guarantee breaks.\nconst BUDGET_RUN_HOUR = 6;\nconst nowET = new Date(\n  new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })\n);\nconst isBudgetRun = nowET.getHours() === BUDGET_RUN_HOUR;\nconst runMode = isBudgetRun ? 'FULL' : 'PAUSE_ONLY';\n\n// Yesterday data — campaign-level if available, account-level as fallback\nconst yesterdayAccountBudget = Number(account.yesterdays_account_proposed_daily_budget) || 0;\nconst yesterdayCampaigns = account.yesterdays_campaigns || {};\n\n// 7-day spend data from API\nconst sevenDayCampaigns = account.sevenDayCampaigns || [];\n\n// === BUILD 7-DAY UTILIZATION MAP ===\n// Structure: { campaignId: [{ date, spend, budget, utilization }, ...] }\nconst utilizationMap = {};\n\nfor (const row of sevenDayCampaigns) {\n  const cId = String(row.campaign_id);\n  if (!utilizationMap[cId]) {\n    utilizationMap[cId] = [];\n  }\n  const spend = Number(row.cost_micros || 0) / 1_000_000;\n  const budget = Number(row.budget_micros || 0) / 1_000_000;\n  const utilization = budget > 0 ? spend / budget : 0;\n  utilizationMap[cId].push({\n    date: row.date,\n    spend,\n    budget,\n    utilization\n  });\n}\n\n// Determine chronic demand-limited status per campaign\n// Rule: < 70% utilization for ALL of the last 7 days\nfunction isChronicDemandLimited(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length < 7) return false; // not enough data to judge\n  return days.every(d => d.utilization < 0.70);\n}\n\n// Get yesterday's utilization from the 7-day data\nfunction getYesterdayUtilization(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length === 0) return null;\n  // Sort by date descending, take the most recent\n  const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date));\n  return sorted[0]; // most recent day in the 7-day window\n}\n// Get 7-day utilization\nfunction getSevenDayAvgUtilization(campaignId) {\n  const days = utilizationMap[String(campaignId)] || [];\n  if (days.length === 0) return null;\n  const totalUtil = days.reduce((sum, d) => sum + d.utilization, 0);\n  return Math.round((totalUtil / days.length) * 100);\n}\n\n// === DAY-1-OF-MONTH GRACE PERIOD ===\n// On the 1st, $0 spend makes every account look UNDERPACE/CRITICAL.\n// Skip all classification and recommendation logic — just log and move on.\nif (account.dateContext.dayOfMonth <= 1) {\n  const graceCampaigns = (account.campaigns || []).map(c => {\n    const cId = String(c.campaignId);\n    return {\n      ...c,\n      isBudgetLimited: false,\n      isChronicDemandLimited: false,\n      classification: null,\n      budgetLostIS: 0,\n      yesterdayUtilization: null,\n      sevenDayAvgUtilization: getSevenDayAvgUtilization(cId),\n      utilizationDays: (utilizationMap[cId] || []).length,\n      practiceName: account.practiceName,\n      adsId: account.adsId,\n      yesterdayAccountBudget,\n      yesterdayCampaignBudget: 0,\n      campaignProposedMultiple: null,\n      accountProposedMultiple: null,\n      variancePercent: account.pacing.variancePercent,\n      correctionPercent: account.projection.correctionPercent,\n      conflictsWithPacing: false,\n      recommendationType: 'NO_CHANGE',\n      skipReason: 'MONTH_START_GRACE',\n      dowMultiplier: 1,\n      dowFlags: 'MONTH_START_GRACE',\n      finalDailyBudget: c.proposedDailyBudget\n    };\n  });\n\n  return {\n    json: {\n      practiceName: account.practiceName,\n      adsId: account.adsId,\n      severity: 'OK',\n      displayStatus: 'On Track',   // grace period: force On Track (spend is $0 on the 1st)\n      runMode,                     // PHASE 1: gates the log + status branches\n      date: account.date,\n      pacing: account.pacing,\n      projection: account.projection,\n      dateContext: account.dateContext,\n      dow: account.dow,\n      accountOnTrack: true,\n      allDemandLimited: false,\n      anyBudgetLimited: false,\n      skipReason: 'MONTH_START_GRACE',\n      campaignSteering: account.campaignSteering || {\n        eligible: false, effectiveMode: 'account', statusReason: 'not_managed'\n      },\n      actions: {\n        autoApply: [],\n        needsApproval: [],\n        pauseList: [],\n        log: graceCampaigns\n      },\n      summary: { autoApplyCount: 0, approvalCount: 0, pauseCount: 0 }\n    }\n  };\n}\n\n// === ACCOUNT-LEVEL PACING OVERRIDE (Bill's Rule 4) ===\n// If 95-105% pace MTD, don't touch any budgets\nconst accountPacePercent = account.pacing.expectedSpend > 0\n  ? (account.pacing.totalActualSpend / account.pacing.expectedSpend) * 100\n  : 100;\nconst accountOnTrack = accountPacePercent >= 95 && accountPacePercent <= 105;\n\n// === CLASSIFY EACH CAMPAIGN ===\nconst classifiedCampaigns = account.campaigns.map(c => {\n  const cId = String(c.campaignId);\n\n  // Budget-limited signals (Bill's Rule 1)\n  const budgetLostIS = c.searchBudgetLostIS || 0;\n  const yesterdayUtil = getYesterdayUtilization(cId);\n  const yesterdayUtilPercent = yesterdayUtil ? yesterdayUtil.utilization : 0;\n\n  const sevenDayUtil = getSevenDayAvgUtilization(cId);\n  const isBudgetLimited = budgetLostIS > 0.05 \n    || yesterdayUtilPercent >= 0.95\n    || (sevenDayUtil !== null && sevenDayUtil >= 95);\n  const chronicDemandLimited = isChronicDemandLimited(cId);\n\n  return {\n    ...c,\n    isBudgetLimited,\n    isChronicDemandLimited: chronicDemandLimited,\n    classification: isBudgetLimited ? 'BUDGET_LIMITED' : 'DEMAND_LIMITED',\n    budgetLostIS: Math.round(budgetLostIS * 100) / 100,\n    yesterdayUtilization: yesterdayUtil\n      ? Math.round(yesterdayUtil.utilization * 100)\n      : null,\n    sevenDayAvgUtilization: getSevenDayAvgUtilization(cId),\n    utilizationDays: (utilizationMap[cId] || []).length\n  };\n});\n\n// === HOURLY CAP-PAUSE — PHASE 2 (2026-07-30): EXCLUDE PAUSED FROM ACCOUNT ROLL-UPS ===\n// The feed now carries paused campaigns (see `Data for Pacing Agent` Phase 2).\n// A paused campaign is never budget-limited -- it cannot spend -- so including it\n// would drag `allDemandLimited` to true and mis-fire Bill's Rule 2\n// (INVESTIGATE / DEMAND_SIDE_ISSUE) on accounts that have a perfectly healthy\n// budget-limited enabled campaign.\n// === V2 (2026-07-30): ROUTABILITY — ONE DEFINITION, USED EVERYWHERE ===\n// The backend no longer decides what is DISPLAYED (the portal filters that now).\n// Its only job is deciding what may be ACTED ON. Two conditions, defined once:\n//\n//   enabled   — a switched-off campaign must never receive a budget write\n//   has spent — a campaign with $0 MTD proposes $0, which damping turns into a\n//               daily 10-30% haircut rather than a stop. See the ZERO_SPEND\n//               notes in `Data for Pacing Agent`.\n//\n// Everything below treats these as advisory; the authoritative enforcement is the\n// single hard gate at the bucket rebuild near the bottom of this node. If you\n// only read one guard in this file, read that one.\nconst isEnabledCampaign = c =>\n  String(c.campaignStatus || 'ENABLED').toUpperCase() === 'ENABLED';\nconst hasSpentThisMonth = c => Number(c.actualSpend) > 0;\nconst isRoutable = c => isEnabledCampaign(c) && hasSpentThisMonth(c);\n\nconst routableCampaigns = classifiedCampaigns.filter(isRoutable);\n\n// `.length > 0` guard is load-bearing: `[].every()` returns TRUE, so on an\n// account where nothing is routable this would vacuously claim every campaign is\n// demand-limited and mis-fire Bill's Rule 2 (INVESTIGATE / DEMAND_SIDE_ISSUE) —\n// sending someone hunting a demand problem when the real answer is \"it is all\n// switched off\". Observed on Dakota Family Dentistry, 2026-07-30.\nconst anyBudgetLimited = routableCampaigns.some(c => c.isBudgetLimited);\nconst allDemandLimited = routableCampaigns.length > 0\n  && routableCampaigns.every(c => !c.isBudgetLimited);\n\n// === PHASE 4 — CAMPAIGN STEERING XOR (full bypass) ===\n// When an account is managed + eligible, campaign-level steering is the ONLY\n// mutation path. The account-level severity gates (Rule 4 on-track freeze,\n// Rule 2 demand-side INVESTIGATE) and account-direction routing are bypassed;\n// each campaign routes purely on its own target-vs-current delta. Account\n// correctionPercent/severity remain computed for display only.\n\n// === TASK 2 (2026-07-23): ACCOUNT BUDGET-CAP PAUSE ===\n// MTD spend has reached/exceeded the monthly budget → hard-stop the whole account:\n// every enabled campaign routes to PAUSE_CAMPAIGN, regardless of severity or\n// campaign-steering. (Day-1 grace handled above.)\nconst capReached =\n  Number(account.pacing.monthlyBudget) > 0 &&\n  Number(account.pacing.totalActualSpend) >= Number(account.pacing.monthlyBudget);\nconst campaignSteeringEligible = !!(account.campaignSteering && account.campaignSteering.eligible);\n\n// === DETERMINE EFFECTIVE SEVERITY ===\nlet effectiveSeverity = account.severity;\nlet skipReason = null;\n\nif (!campaignSteeringEligible) {\n  if (accountOnTrack) {\n    // Rule 4: Account on track — no changes\n    effectiveSeverity = 'OK';\n    skipReason = 'ACCOUNT_ON_TRACK';\n  } else if (account.projection.direction === 'under' && allDemandLimited) {\n    // Rule 2: Underpacing but no campaign is budget-limited\n    effectiveSeverity = 'INVESTIGATE';\n    skipReason = 'DEMAND_SIDE_ISSUE';\n  }\n}\n\n// === BUILD ACTIONS ===\nconst actions = {\n  autoApply: [],\n  needsApproval: [],\n  pauseList: [],\n  log: []\n};\n\n// Account-level multiple — kept for logging only\nconst todayProposed = account.pacing.proposedDailyBudget;\nconst accountProposedMultiple = yesterdayAccountBudget > 0\n  ? todayProposed / yesterdayAccountBudget\n  : null;\n\nclassifiedCampaigns.forEach(c => {\n  const cId = String(c.campaignId);\n  const yesterdayCampaign = yesterdayCampaigns[cId] || null;\n  const yesterdayCampaignBudget = yesterdayCampaign\n    ? yesterdayCampaign.proposedDailyBudget\n    : 0;\n\n  // All change/direction comparisons run against the DE-NORMALIZED base\n  // view of the live budget. The raw live budget embodies yesterday's\n  // DOW multiplier; comparing the base proposal against it would make\n  // intended DOW swings look like pacing changes.\n  const compareBudget = (c.baseCurrentDailyBudget != null)\n    ? c.baseCurrentDailyBudget\n    : c.currentDailyBudget;\n\n  // Per-campaign escalation check (yesterday's logged budget is already a base)\n  const campaignProposedMultiple = yesterdayCampaignBudget > 0\n    ? c.proposedDailyBudget / yesterdayCampaignBudget\n    : null;\n  const campaignExceedsEscalation = campaignProposedMultiple !== null\n    && (campaignProposedMultiple >= 2 || campaignProposedMultiple <= 0.5);\n\n  // Meaningful change check\n  const dollarChange = Math.abs(c.proposedDailyBudget - compareBudget);\n  const percentChange = compareBudget > 0\n    ? Math.abs((c.proposedDailyBudget / compareBudget) - 1)\n    : (c.proposedDailyBudget > 0 ? 1 : 0);\n  const meaningfulChange = percentChange >= 0.10 || dollarChange >= 3;\n\n  // Direction consistency check\n  // PHASE 4: for steered campaigns this account-direction conflict concept\n  // does not apply — each campaign moves toward its own target. Force false.\n  const accountDirection = account.projection.direction;\n  const campaignDirection = c.proposedDailyBudget > compareBudget ? 'increase' : 'decrease';\n  const conflictsWithPacing = !campaignSteeringEligible && meaningfulChange && (\n    (accountDirection === 'over' && campaignDirection === 'increase') ||\n    (accountDirection === 'under' && campaignDirection === 'decrease')\n  );\n\n  let recommendationType;\n  let campaignSkipReason = skipReason; // inherit account-level skip if set\n\n  if (!isEnabledCampaign(c)) {\n    // === ALREADY PAUSED — terminal, evaluated before everything else ===\n    // Still in the feed (the GAQL excludes only REMOVED) so its spend stays\n    // accountable and the portal can choose whether to show it. It must never\n    // reach ANY routing branch: not the cap-pause (already paused — re-issuing\n    // the mutate is a pointless write), not steering, not the severity ladder.\n    // Ahead of `capReached` deliberately: on a capped account every campaign is\n    // paused on the first run, and this branch is what stops every run after\n    // that from re-pausing the same campaigns forever.\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'ALREADY_PAUSED';\n\n  } else if (capReached) {\n    // Account cap hit — hard stop this campaign.\n    // DELIBERATELY ahead of the zero-spend check: pausing is a SAFETY action and\n    // is safe on any enabled campaign, spent or not. A $0 campaign left running\n    // on a capped account is a campaign that can start spending after the cap.\n    recommendationType = 'PAUSE_CAMPAIGN';\n    campaignSkipReason = 'BUDGET_CAP_REACHED';\n\n  } else if (!hasSpentThisMonth(c)) {\n    // === V2 (2026-07-30): ZERO SPEND — SHOWN AND LOGGED, NEVER ROUTED ===\n    // Replaces the old `activeCampaigns` spend filter, which achieved this by\n    // deleting the campaign outright. Mark wants running campaigns visible even\n    // at $0; what must NOT happen is routing them.\n    //\n    // Why it matters: allocation is share-of-spend, so a campaign that launched\n    // yesterday has share 0 and proposes $0. Damping refuses to move more than\n    // 10-30% in a day, so instead of a clean no-op you get a slow bleed —\n    // $50 -> $45 -> $40 -> $36, every morning, indefinitely. It never errors and\n    // it reads as ordinary pacing in the log. This branch is the whole defence.\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'ZERO_SPEND_NO_ROUTING';\n\n  } else if (campaignSteeringEligible) {\n    // === PHASE 4 — CAMPAIGN-STEERED ROUTING ===\n    // Route on this campaign's own target-vs-current delta. Meaningful moves\n    // go to AUTO increase/decrease; the 2x escalation safety net still forces\n    // approval. Damping (upstream) already caps the per-day step size, and the\n    // auto-decrease promotion + shared-budget grouping below still apply.\n    if (!meaningfulChange) {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n    } else if (campaignExceedsEscalation) {\n      recommendationType = campaignDirection === 'increase'\n        ? 'BUDGET_INCREASE_APPROVAL'\n        : 'BUDGET_DECREASE_APPROVAL';\n    } else {\n      recommendationType = campaignDirection === 'increase'\n        ? 'BUDGET_INCREASE'\n        : 'BUDGET_DECREASE';\n    }\n\n  } else if (skipReason === 'ACCOUNT_ON_TRACK') {\n    // Rule 4: Account on track — no PACING changes for anyone.\n    // (Day-of-week shaping is applied later, in the DOW final transform.)\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'ACCOUNT_ON_TRACK';\n\n  } else if (skipReason === 'DEMAND_SIDE_ISSUE') {\n    // Rule 2: All demand-limited — no budget changes\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'DEMAND_SIDE_ISSUE';\n\n  } else if (account.projection.direction === 'under' && !c.isBudgetLimited && !c.isChronicDemandLimited) {\n    // Rule 3 (partial): Underpacing, this campaign is demand-limited but NOT chronic — leave alone\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'DEMAND_LIMITED_NO_CHANGE';\n\n  } else if (account.projection.direction === 'under' && !c.isBudgetLimited && c.isChronicDemandLimited) {\n    // Rule 3 (partial): Chronic demand-limited sibling — eligible donor\n    // Only donate if there ARE budget-limited siblings that need it\n    if (anyBudgetLimited && meaningfulChange) {\n      recommendationType = 'BUDGET_DECREASE_APPROVAL';\n      campaignSkipReason = 'CHRONIC_DEMAND_LIMITED_DONOR';\n    } else {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'CHRONIC_BUT_NO_BUDGET_LIMITED_SIBLING';\n    }\n\n  } else if (account.projection.direction === 'under' && c.isBudgetLimited) {\n    // Rule 3 (core): Budget-limited campaign on an underpacing account — INCREASE\n    if (meaningfulChange) {\n      recommendationType = 'BUDGET_INCREASE';\n      campaignSkipReason = null;\n    } else {\n      recommendationType = 'NO_CHANGE';\n      campaignSkipReason = 'BUDGET_LIMITED_BUT_CHANGE_TOO_SMALL';\n    }\n\n  } else if (effectiveSeverity === 'CRITICAL' && meaningfulChange) {\n    // Overpacing: CRITICAL — aggressive action\n    recommendationType = c.proposedDailyBudget === 0\n      ? 'PAUSE_CAMPAIGN'\n      : (c.proposedDailyBudget > compareBudget\n          ? 'BUDGET_INCREASE_APPROVAL'\n          : 'BUDGET_DECREASE_APPROVAL');\n\n  } else if (conflictsWithPacing) {\n    // Direction conflict — force to approval\n    recommendationType = campaignDirection === 'increase'\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if (campaignExceedsEscalation) {\n    // 2x escalation safety net\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if (effectiveSeverity === 'ALERT' && meaningfulChange) {\n    // ALERT: meaningful changes need approval\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n\n  } else if ((effectiveSeverity === 'AUTO' || effectiveSeverity === 'UNDERPACE') && meaningfulChange) {\n    // AUTO/UNDERPACE with budget-limited campaigns already handled above\n    // This catches overpacing AUTO scenarios\n    recommendationType = c.proposedDailyBudget > compareBudget\n      ? 'BUDGET_INCREASE'\n      : 'BUDGET_DECREASE';\n\n  } else {\n    recommendationType = 'NO_CHANGE';\n  }\n\n  // Bill's Rule 3: Never cut a budget-limited campaign on an underpacing account.\n  // PHASE 4: this is an account-direction rule; it does not apply under campaign\n  // steering, where a campaign over its OWN target should be cut regardless.\n  if (!campaignSteeringEligible\n      && c.isBudgetLimited\n      && account.projection.direction === 'under'\n      && recommendationType !== 'NO_CHANGE'\n      && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'NO_CHANGE';\n    campaignSkipReason = 'BUDGET_LIMITED_NO_DECREASE';\n  }\n\n  // Catch-all: ensure every NO_CHANGE has a skip reason\n  if (recommendationType === 'NO_CHANGE' && !campaignSkipReason) {\n    campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n  }\n\n  // A non-routable campaign is terminal. Every rule below this point -- Rule 3,\n  // the label reconcilers, the auto-decrease promotion -- assumes a routable\n  // campaign, so short-circuit the whole tail rather than trusting each one to\n  // no-op on NO_CHANGE.\n  const pausedTerminal =\n    campaignSkipReason === 'ALREADY_PAUSED' ||\n    campaignSkipReason === 'ZERO_SPEND_NO_ROUTING';\n\n  // Reconcile label with actual dollar direction (base vs base)\n  if (!pausedTerminal && recommendationType === 'BUDGET_INCREASE' && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'BUDGET_DECREASE';\n  } else if (!pausedTerminal && recommendationType === 'BUDGET_DECREASE' && c.proposedDailyBudget > compareBudget) {\n    recommendationType = 'BUDGET_INCREASE';\n  } else if (!pausedTerminal && recommendationType === 'BUDGET_INCREASE_APPROVAL' && c.proposedDailyBudget < compareBudget) {\n    recommendationType = 'BUDGET_DECREASE_APPROVAL';\n  } else if (!pausedTerminal && recommendationType === 'BUDGET_DECREASE_APPROVAL' && c.proposedDailyBudget > compareBudget) {\n    recommendationType = 'BUDGET_INCREASE_APPROVAL';\n  }\n\n  // If proposed equals base-current, it's NO_CHANGE regardless\n  if (c.proposedDailyBudget === compareBudget) {\n    recommendationType = 'NO_CHANGE';\n    if (!campaignSkipReason) campaignSkipReason = 'NO_MEANINGFUL_CHANGE';\n  }\n\n  // === BILL'S AUTO-DECREASE RULE (June 2026) ===\n  // Decreases with an applied cut of ≤30% auto-apply instead of routing to approval.\n  // Upstream damping already caps single-day cuts (CRITICAL ±30%, ALERT ±20%),\n  // so this promotes most CRITICAL/ALERT decrease approvals to auto-apply.\n  // Safety flags still force approval: direction conflicts, 2x escalation,\n  // and chronic demand-limited donor cuts (Rule 3 reallocations).\n  // DOW NOTE: measured against the DE-NORMALIZED base (compareBudget), not the\n  // live budget — otherwise yesterday's multiplier distorts the ≤30% test.\n  const appliedDecreasePercent = (compareBudget > 0 && c.proposedDailyBudget < compareBudget)\n    ? (compareBudget - c.proposedDailyBudget) / compareBudget\n    : 0;\n\n  let autoDecreasePromoted = false;\n\n  // Promote when the cut is no deeper than the rounded 30% damping floor.\n  // Comparing dollars (not percent) avoids rounding artifacts on small budgets —\n  // e.g., $42 × 0.70 = $29.40 rounds to $29, a 30.95% cut that a strict\n  // percent check would wrongly reject.\n  const thirtyPercentFloor = Math.round(compareBudget * 0.70);\n\n  if (recommendationType === 'BUDGET_DECREASE_APPROVAL'\n      && appliedDecreasePercent > 0\n      && c.proposedDailyBudget >= thirtyPercentFloor\n      && !conflictsWithPacing\n      && !campaignExceedsEscalation\n      && campaignSkipReason !== 'CHRONIC_DEMAND_LIMITED_DONOR') {\n    recommendationType = 'BUDGET_DECREASE';\n    autoDecreasePromoted = true;\n  }\n\n  const campaignAction = {\n    ...c,\n    practiceName: account.practiceName,\n    adsId: account.adsId,\n    yesterdayAccountBudget,\n    yesterdayCampaignBudget,\n    campaignProposedMultiple: campaignProposedMultiple !== null\n      ? Math.round(campaignProposedMultiple * 100) / 100\n      : null,\n    accountProposedMultiple: accountProposedMultiple !== null\n      ? Math.round(accountProposedMultiple * 100) / 100\n      : null,\n    variancePercent: account.pacing.variancePercent,\n    correctionPercent: account.projection.correctionPercent,\n    conflictsWithPacing,\n    appliedDecreasePercent: Math.round(appliedDecreasePercent * 100),\n    autoDecreasePromoted,\n    recommendationType,\n    skipReason: campaignSkipReason,\n    // PHASE 2: surfaced so the log row and the portal can render \"Paused\"\n    // persistently on days the agent took no action.\n    campaignStatus: c.campaignStatus || 'ENABLED',\n    pauseReason: recommendationType === 'PAUSE_CAMPAIGN'\n      ? (campaignSkipReason === 'BUDGET_CAP_REACHED' ? 'BUDGET_CAP_REACHED' : 'MONTH_END_ZERO')\n      : null\n  };\n\n  // Route to action buckets\n  if (recommendationType === 'PAUSE_CAMPAIGN') {\n    actions.pauseList.push(campaignAction);\n  } else if (recommendationType.includes('APPROVAL')) {\n    actions.needsApproval.push(campaignAction);\n  } else if (recommendationType === 'BUDGET_INCREASE' || recommendationType === 'BUDGET_DECREASE') {\n    actions.autoApply.push(campaignAction);\n  }\n\n  actions.log.push(campaignAction);\n});\n\n// === SHARED BUDGET RECOMMENDATION GROUPING ===\n// Siblings sharing a budget resource must get the same recommendation.\n// Run after all individual recommendations are set, before label reconciliation.\n\nconst budgetGroups = {};\nactions.log.forEach((c, idx) => {\n  if (c.isSharedBudget && c.campaignBudgetResource) {\n    if (!budgetGroups[c.campaignBudgetResource]) {\n      budgetGroups[c.campaignBudgetResource] = [];\n    }\n    budgetGroups[c.campaignBudgetResource].push(idx);\n  }\n});\n\nfor (const [resource, indices] of Object.entries(budgetGroups)) {\n  if (indices.length < 2) continue;\n\n  const siblings = indices.map(i => actions.log[i]);\n  const recTypes = siblings.map(s => s.recommendationType);\n  const directions = siblings.map(s => {\n    if (s.recommendationType === 'NO_CHANGE') return 'none';\n    const cmp = (s.baseCurrentDailyBudget != null) ? s.baseCurrentDailyBudget : s.currentDailyBudget;\n    return s.proposedDailyBudget > cmp ? 'increase' : 'decrease';\n  });\n\n  const uniqueDirections = [...new Set(directions.filter(d => d !== 'none'))];\n  const anyApproval = recTypes.some(r => r.includes('APPROVAL'));\n  const anyPause = recTypes.some(r => r === 'PAUSE_CAMPAIGN');\n\n  let groupRec;\n  let groupNote;\n\n  if (anyPause) {\n    // If any sibling wants to pause, escalate the whole group to approval\n    groupRec = 'BUDGET_DECREASE_APPROVAL';\n    groupNote = 'Shared budget — sibling campaign flagged for pause, group routed to approval';\n  } else if (uniqueDirections.length > 1) {\n    // Conflicting directions — default to NO_CHANGE\n    groupRec = 'NO_CHANGE';\n    groupNote = 'Shared budget — sibling campaigns disagree on direction, no change applied';\n  } else if (uniqueDirections.length === 1 && anyApproval) {\n    // Same direction but at least one needs approval — whole group needs approval\n    groupRec = uniqueDirections[0] === 'increase'\n      ? 'BUDGET_INCREASE_APPROVAL'\n      : 'BUDGET_DECREASE_APPROVAL';\n    groupNote = 'Shared budget — grouped recommendation requires approval';\n  } else if (uniqueDirections.length === 1) {\n    // Same direction, all auto — keep it\n    groupRec = uniqueDirections[0] === 'increase'\n      ? 'BUDGET_INCREASE'\n      : 'BUDGET_DECREASE';\n    groupNote = 'Shared budget — siblings agree on direction';\n  } else {\n    // All NO_CHANGE already\n    groupRec = 'NO_CHANGE';\n    groupNote = 'Shared budget — no changes needed';\n  }\n\n  // Apply unified recommendation to all siblings\n  for (const idx of indices) {\n    const c = actions.log[idx];\n    c.recommendationType = groupRec;\n    c.sharedBudgetNote = groupNote;\n\n    if (groupRec === 'NO_CHANGE' && !c.skipReason) {\n      c.skipReason = 'SHARED_BUDGET_CONFLICT';\n    }\n  }\n}\n\n// === DAY-OF-WEEK FINAL TRANSFORM ===\n// Applied LAST: after all pacing logic, damping, routing, and shared-budget\n// grouping. proposedDailyBudget remains the BASE everywhere upstream and in\n// the sheet; finalDailyBudget is the only value the mutate call may use.\n\nconst accountDow = account.dow || { multiplier: 1, flags: [] };\nconst dowM = accountDow.multiplier || 1;\n\n// Rows that must never be converted to a DOW adjustment\n// PHASE 2: ALREADY_PAUSED added. Without it a paused campaign's NO_CHANGE row\n// is converted to DOW_ADJUSTMENT, lands in `actions.autoApply`, and `Alter Budget`\n// writes a new daily budget to a campaign that is switched off. This is a live\n// money-path write, not a cosmetic issue -- do not drop this entry.\nconst DOW_CONVERT_EXCLUSIONS = [\n  'MONTH_START_GRACE',\n  'SHARED_BUDGET_CONFLICT',\n  'ALREADY_PAUSED',\n  'ZERO_SPEND_NO_ROUTING'\n];\n\nactions.log.forEach(c => {\n  // === V2 (2026-07-30): NON-ROUTABLE ROWS LEAVE DOW UNTOUCHED ===\n  // Structural, not list-membership. The exclusion array above is now the BACKUP\n  // defence; this early return is the primary one, because it is stated in terms\n  // of campaign state rather than a skipReason string that a later edit could\n  // rename. The DOW shaper has no concept of whether a campaign is running, so\n  // without this a paused row is shaped, converted to DOW_ADJUSTMENT, and lands\n  // in `actions.autoApply` — a live budget write to a switched-off campaign.\n  // finalDailyBudget is pinned to the campaign's own base so the logged row is\n  // honest about the fact that nothing moved.\n  if (!isRoutable(c)) {\n    c.dowMultiplier = dowM;\n    c.dowFlags = (accountDow.flags || []).join('|');\n    c.dowGuardApplied = false;\n    c.finalDailyBudget = (c.baseCurrentDailyBudget != null)\n      ? c.baseCurrentDailyBudget\n      : c.currentDailyBudget;\n    return;\n  }\n\n  const isAction = ['BUDGET_INCREASE','BUDGET_DECREASE',\n                    'BUDGET_INCREASE_APPROVAL','BUDGET_DECREASE_APPROVAL'].includes(c.recommendationType);\n  const base = isAction\n    ? c.proposedDailyBudget\n    : ((c.baseCurrentDailyBudget != null) ? c.baseCurrentDailyBudget : c.currentDailyBudget);\n\n  // Shape the base, then hard-clamp: never outside 0.55x–1.55x of base\n  let final = Math.round(base * dowM);\n  const ceiling = Math.round(base * 1.55);\n  const floor = Math.round(base * 0.55);\n  final = Math.min(ceiling, Math.max(floor, final));\n\n  // Account-level safety guard:\n  // On an overpacing account, DOW shaping must not turn a pacing reduction\n  // into an increase above the budget currently live in Google Ads.\n  // Campaign-steered accounts are excluded because each campaign follows\n  // its own monthly target.\n  const overpacingAccountGuard =\n    !campaignSteeringEligible &&\n    account.projection?.direction === 'over';\n\n  if (overpacingAccountGuard && final > c.currentDailyBudget) {\n    final = c.currentDailyBudget;\n    c.dowGuardApplied = true;\n  } else {\n    c.dowGuardApplied = false;\n  }\n\n  c.dowMultiplier = dowM;\n  c.dowFlags = (accountDow.flags || []).join('|');\n  c.finalDailyBudget = final;\n\n  // Pause rows carry no budget change\n  if (c.recommendationType === 'PAUSE_CAMPAIGN') {\n    c.finalDailyBudget = base;\n    return;\n  }\n\n  // If the overpacing guard reduced a proposed decrease to the current live\n// budget, there is no actual dollar change left to apply.\nconst isDecreaseRecommendation = [\n  'BUDGET_DECREASE',\n  'BUDGET_DECREASE_APPROVAL'\n].includes(c.recommendationType);\n\nif (\n  overpacingAccountGuard &&\n  isDecreaseRecommendation &&\n  c.finalDailyBudget >= c.currentDailyBudget\n) {\n  c.recommendationType = 'NO_CHANGE';\n  c.skipReason = 'DOW_CLAMPED_OVERPACE_NO_CHANGE';\n  c.dowNote =\n    'DOW increase suppressed because the account is overpacing';\n  return;\n}\n\n  // Convert eligible NO_CHANGE rows to DOW_ADJUSTMENT when the shaped\n  // budget meaningfully differs from the budget that is LIVE right now.\n  // This is what lets the daily shape fire on ACCOUNT_ON_TRACK days\n  // (Bill's call: allocate toward converting days even when pacing is fine).\n  if (c.recommendationType === 'NO_CHANGE'\n      && !DOW_CONVERT_EXCLUSIONS.includes(c.skipReason)) {\n    const liveBudget = c.currentDailyBudget;\n    const dollarDelta = Math.abs(final - liveBudget);\n    const pctDelta = liveBudget > 0 ? dollarDelta / liveBudget : (final > 0 ? 1 : 0);\n    if (dollarDelta >= 3 || pctDelta >= 0.05) {\n      c.recommendationType = 'DOW_ADJUSTMENT';\n      c.dowNote = 'Day-of-week shaping: base $' + base + ' x ' + dowM + ' -> $' + final;\n    }\n  }\n});\n\n// Rebuild action buckets after shared budget grouping + DOW transform\nactions.autoApply = [];\nactions.needsApproval = [];\nactions.pauseList = [];\n\n// === V2 (2026-07-30): THE HARD GATE ===\n// This is the single choke point between the pacing logic and real money. Every\n// rule above is advisory; this is authoritative. Nothing enters an action bucket\n// without passing here, so no future edit to a skipReason string, an exclusion\n// array, or a routing branch can put a write on a campaign that should not get\n// one. Stated in campaign state, not derived labels, on purpose.\n//\n// The asymmetry is deliberate:\n//   * PAUSE is a safety action -- allowed on ANY enabled campaign, spent or not.\n//     A $0 campaign on a capped account can still start spending tomorrow.\n//   * BUDGET changes additionally require spend history, because allocation is\n//     share-of-spend and a $0 share produces the damping haircut described above.\nactions.log.forEach(c => {\n  if (!isEnabledCampaign(c)) return;          // switched off -> never mutates\n\n  if (c.recommendationType === 'PAUSE_CAMPAIGN') {\n    actions.pauseList.push(c);\n    return;\n  }\n\n  if (!hasSpentThisMonth(c)) return;          // no spend -> no BUDGET change\n\n  if (c.recommendationType.includes('APPROVAL')) {\n    actions.needsApproval.push(c);\n  } else if (c.recommendationType === 'BUDGET_INCREASE'\n      || c.recommendationType === 'BUDGET_DECREASE'\n      || c.recommendationType === 'DOW_ADJUSTMENT') {\n    actions.autoApply.push(c);\n  }\n});\n\n// === HOURLY CAP-PAUSE — PHASE 1 (2026-07-30): NON-BUDGET-RUN SUPPRESSION ===\n// On any run that is not the 6 AM budget run, the ONLY thing allowed to leave\n// this node is a budget-cap pause. Emptying the two budget buckets here is what\n// makes `Switch` outputs 0 (autoApply) and 1 (needsApproval) match nothing --\n// no Switch edit is required, and `allMatchingOutputs: true` still routes the\n// pause bucket normally through output 2.\n//\n// pauseList is narrowed to BUDGET_CAP_REACHED only. The other pause reason,\n// MONTH_END_ZERO, originates from `proposedDailyBudget === 0` under CRITICAL --\n// that is a pacing decision, and letting it fire off-schedule would put pacing\n// math back in play 24x/day, defeating the point of the 6 AM boundary.\n// Decision locked with Mark 2026-07-30.\n//\n// NOTE: this runs BEFORE the INVESTIGATE fallback below on purpose. INVESTIGATE\n// means \"off-pace but nothing actionable\", and on a PAUSE_ONLY run nothing is\n// actionable BY DESIGN. Suppressing first means severity still reflects what the\n// account actually looks like, and INVESTIGATE is not spuriously raised every\n// hour. Severity is display-only on these runs anyway -- nothing is logged.\n\n// INVESTIGATE: off-pace but nothing actionable (original logic preserved as fallback)\nconst pacingAutoApply = actions.autoApply.filter(c => c.recommendationType !== 'DOW_ADJUSTMENT');\nconst nothingToAct =\n  pacingAutoApply.length === 0 &&\n  actions.needsApproval.length === 0 &&\n  actions.pauseList.length === 0;\n\nconst isOffPace = effectiveSeverity !== 'OK' && effectiveSeverity !== 'INVESTIGATE';\n\nconst finalSeverity = (nothingToAct && isOffPace)\n  ? 'INVESTIGATE'\n  : effectiveSeverity;\n\nif (!isBudgetRun) {\n  actions.autoApply = [];\n  actions.needsApproval = [];\n  actions.pauseList = actions.pauseList.filter(\n    c => c.pauseReason === 'BUDGET_CAP_REACHED'\n  );\n}\n\nreturn {\n  json: {\n    practiceName: account.practiceName,\n    adsId: account.adsId,\n    severity: finalSeverity,\n    displayStatus: account.displayStatus,   // display-only, untouched by routing (INVESTIGATE etc.)\n    runMode,                                // PHASE 1: 'FULL' (6 AM) | 'PAUSE_ONLY' (every other hour)\n    date: account.date,\n    dow: account.dow,\n    pacing: account.pacing,\n    projection: account.projection,\n    dateContext: account.dateContext,\n    accountOnTrack,\n    allDemandLimited,\n    anyBudgetLimited,\n    skipReason,\n    // Phase 4: pass steering mode through for the portal + status writer\n    campaignSteering: account.campaignSteering || {\n      eligible: false, effectiveMode: 'account', statusReason: 'not_managed'\n    },\n    actions,\n    summary: {\n      autoApplyCount: actions.autoApply.length,\n      approvalCount: actions.needsApproval.length,\n      pauseCount: actions.pauseList.length\n    }\n  }\n};"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         2224,
-        464
+        432
       ],
       "id": "b7607f16-3666-4270-9754-23335b4c851b",
       "name": "Merged Data"
@@ -408,8 +408,8 @@
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        2448,
-        528
+        2672,
+        496
       ],
       "id": "7c79d2aa-925b-41c5-a6c0-85e6f9e09f0c",
       "name": "Log Data"
@@ -478,7 +478,8 @@
             "dow_flags": "={{ $json.dowFlags }}",
             "auto_decrease_promoted": "={{ $json.autoDecreasePromoted }}",
             "applied_decrease_percent": "={{ $json.appliedDecreasePercent }}",
-            "display_status": "={{ $('Merged Data').item.json.displayStatus }}"
+            "display_status": "={{ $('Merged Data').item.json.displayStatus }}",
+            "campaign_status": "={{ $json.campaignStatus }}"
           },
           "matchingColumns": [
             "Practice"
@@ -983,6 +984,16 @@
               "type": "string",
               "canBeUsedToMatch": true,
               "removed": false
+            },
+            {
+              "id": "campaign_status",
+              "displayName": "campaign_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
             }
           ],
           "attemptToConvertTypes": false,
@@ -993,8 +1004,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        3120,
-        528
+        3344,
+        496
       ],
       "id": "c3f04da7-3681-4534-95df-00b309d2eb67",
       "name": "Add Campaign Logs",
@@ -1039,7 +1050,7 @@
       "typeVersion": 4.7,
       "position": [
         1328,
-        752
+        720
       ],
       "id": "8698ca95-329c-482d-923a-d953c3fd5774",
       "name": "Lookup Yesterdays Budget",
@@ -1059,7 +1070,8 @@
         "rule": {
           "interval": [
             {
-              "triggerAtHour": 6
+              "field": "hours",
+              "triggerAtMinute": 1
             }
           ]
         }
@@ -1068,7 +1080,7 @@
       "typeVersion": 1.3,
       "position": [
         -464,
-        288
+        256
       ],
       "id": "87a040fb-3ee2-472f-8826-4c22c20d3de9",
       "name": "Schedule Trigger"
@@ -1101,7 +1113,7 @@
       "typeVersion": 2.3,
       "position": [
         432,
-        176
+        144
       ],
       "id": "d6448783-420f-4073-baa2-d3827e2baf55",
       "name": "Ads ID > 10 Char"
@@ -1114,7 +1126,7 @@
       "typeVersion": 2,
       "position": [
         1552,
-        752
+        720
       ],
       "id": "f5cba1c7-9ece-4605-92a7-6eb328908348",
       "name": "Campaign Level Data Agg"
@@ -1128,7 +1140,7 @@
       "typeVersion": 1,
       "position": [
         1328,
-        560
+        528
       ],
       "id": "a358f3c2-ba49-4595-9812-dd80b5b2d763",
       "name": "Split Out1"
@@ -1154,14 +1166,14 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\"query\": \"SELECT customer.id, campaign.id, campaign.name, campaign_budget.amount_micros, metrics.cost_micros, segments.date FROM campaign WHERE campaign.status = 'ENABLED' AND segments.date DURING LAST_7_DAYS\"}",
+        "jsonBody": "={\"query\": \"SELECT customer.id, campaign.id, campaign.name, campaign_budget.amount_micros, metrics.cost_micros, segments.date FROM campaign WHERE campaign.status != 'REMOVED' AND segments.date DURING LAST_7_DAYS\"}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
         1104,
-        560
+        528
       ],
       "id": "9c05ad7a-6bca-4907-a343-067063040738",
       "name": "Last Week's Spend",
@@ -1184,7 +1196,7 @@
       "typeVersion": 2,
       "position": [
         1552,
-        560
+        528
       ],
       "id": "8c5efcc1-5205-4ab4-b0a6-0156ea49830f",
       "name": "Group by Account"
@@ -1208,7 +1220,7 @@
       "typeVersion": 3.2,
       "position": [
         1776,
-        576
+        544
       ],
       "id": "cc0f87b8-a359-46ee-879f-8b687617f1cc",
       "name": "Agg by Account",
@@ -1222,8 +1234,8 @@
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
       "position": [
-        2672,
-        528
+        2896,
+        496
       ],
       "id": "8e056e3e-7fe3-41e7-9aa4-d87b834a46bf",
       "name": "Loop Over Items"
@@ -1235,8 +1247,8 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "position": [
-        2896,
-        384
+        3120,
+        352
       ],
       "id": "f63954eb-4781-418f-ad33-6a14f1b68f6e",
       "name": "Wait",
@@ -1252,7 +1264,7 @@
       "typeVersion": 2,
       "position": [
         2896,
-        0
+        -32
       ],
       "id": "6648e216-2668-4133-b1b0-4a8cadcfd700",
       "name": "Remove Duplicates"
@@ -1266,7 +1278,7 @@
       "typeVersion": 1,
       "position": [
         2672,
-        0
+        -32
       ],
       "id": "51f4c585-011e-4b70-898c-8c46abed5326",
       "name": "Split Budgets"
@@ -1299,7 +1311,7 @@
       "typeVersion": 4.4,
       "position": [
         3120,
-        0
+        -32
       ],
       "id": "cbaaf04d-8264-4012-ba2e-0668b4b94f38",
       "name": "Alter Budget",
@@ -1342,7 +1354,7 @@
       "typeVersion": 4.4,
       "position": [
         432,
-        1488
+        1456
       ],
       "id": "e4ebb3fd-1fde-4636-ac8f-994378e451cc",
       "name": "Check Budget",
@@ -1366,7 +1378,7 @@
       "typeVersion": 2.1,
       "position": [
         -464,
-        1680
+        1648
       ],
       "id": "75c5aa1c-a9f8-4ec2-95f9-afe06cdc107f",
       "name": "Webhook",
@@ -1406,7 +1418,7 @@
       "typeVersion": 4.7,
       "position": [
         -240,
-        1680
+        1648
       ],
       "id": "26753a65-11bf-4b41-851d-1d0820632330",
       "name": "Get row(s) in sheet",
@@ -1501,7 +1513,7 @@
       "typeVersion": 3.4,
       "position": [
         208,
-        1664
+        1632
       ],
       "id": "2c56df09-5533-4eae-805a-8560f536bcea",
       "name": "Switch1"
@@ -1534,7 +1546,7 @@
       "typeVersion": 4.4,
       "position": [
         432,
-        1680
+        1648
       ],
       "id": "795a0122-df1a-4bfd-83fd-e48832d80f72",
       "name": "Check Budget1",
@@ -1577,7 +1589,7 @@
       "typeVersion": 4.4,
       "position": [
         656,
-        1488
+        1456
       ],
       "id": "29f96870-cb93-419b-ab9c-0e343c62ab02",
       "name": "Increase Budget",
@@ -1620,7 +1632,7 @@
       "typeVersion": 4.4,
       "position": [
         656,
-        1680
+        1648
       ],
       "id": "6507d88f-2eb2-4f80-816c-2f70987345cc",
       "name": "Decrease Budget",
@@ -1663,7 +1675,7 @@
       "typeVersion": 2.3,
       "position": [
         -16,
-        1680
+        1648
       ],
       "id": "36cc4d0c-dd46-46e5-bbfc-344626583115",
       "name": "Approved Only"
@@ -1679,7 +1691,7 @@
       "typeVersion": 2.1,
       "position": [
         -464,
-        1264
+        1232
       ],
       "id": "3e532d79-5a05-4805-b09c-494332f41480",
       "name": "Campaign Budget Updates",
@@ -1760,8 +1772,8 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        2672,
-        720
+        2896,
+        688
       ],
       "id": "6ec74780-6129-4a35-a461-5adff7caad5a",
       "name": "Append or update row in sheet",
@@ -1794,7 +1806,7 @@
       "typeVersion": 4.7,
       "position": [
         880,
-        192
+        160
       ],
       "executeOnce": true,
       "credentials": {
@@ -1813,8 +1825,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2448,
-        720
+        2672,
+        688
       ]
     },
     {
@@ -1845,7 +1857,7 @@
       "typeVersion": 4.4,
       "position": [
         880,
-        0
+        -32
       ],
       "id": "0da368e4-a0a2-4312-9587-065a9e48b727",
       "name": "Account Spend (all statuses)",
@@ -1869,7 +1881,7 @@
       "typeVersion": 1,
       "position": [
         2672,
-        192
+        160
       ],
       "id": "fce104b6-74f8-4737-9628-520235e9b2eb",
       "name": "Split pause actions"
@@ -1902,7 +1914,7 @@
       "typeVersion": 4.4,
       "position": [
         432,
-        1872
+        1840
       ],
       "id": "3cc2aa63-1f1b-4e8c-af02-fbf85cbf38c9",
       "name": "Pause Campaign (manual)",
@@ -1945,7 +1957,7 @@
       "typeVersion": 4.4,
       "position": [
         2896,
-        192
+        160
       ],
       "id": "1b8577cb-8a6a-4e92-9506-710e652afe0f",
       "name": "Pause Campaign (auto)",
@@ -2080,7 +2092,7 @@
       "typeVersion": 4.7,
       "position": [
         3120,
-        192
+        160
       ],
       "id": "590dbf4e-55b1-4d1c-8102-963130f1c4f5",
       "name": "Append or update row in Campaign Status",
@@ -2108,7 +2120,7 @@
       "typeVersion": 1.3,
       "position": [
         -464,
-        1040
+        1008
       ],
       "id": "62f0e50f-4c16-4c8e-aabc-9de2761c7f85",
       "name": "Monthly Restart"
@@ -2143,7 +2155,7 @@
       "typeVersion": 4.7,
       "position": [
         -240,
-        1040
+        1008
       ],
       "id": "029aa158-fb3e-43e9-8895-0e50084f5370",
       "name": "Get row(s) in sheet1",
@@ -2163,7 +2175,7 @@
       "typeVersion": 3,
       "position": [
         -16,
-        1040
+        1008
       ],
       "id": "bf9f7ddd-90d9-46a7-92a6-8cadcc8f8dbe",
       "name": "Loop Over Items2"
@@ -2174,7 +2186,7 @@
       "typeVersion": 1.1,
       "position": [
         432,
-        976
+        944
       ],
       "id": "d1c19d13-8a9f-4004-9568-bf30df902d52",
       "name": "Wait2",
@@ -2208,7 +2220,7 @@
       "typeVersion": 4.4,
       "position": [
         208,
-        976
+        944
       ],
       "id": "f1675665-30c6-477a-9ce6-a345fc1b1244",
       "name": "Re-Enable Campaign",
@@ -2341,7 +2353,7 @@
       "typeVersion": 4.7,
       "position": [
         656,
-        1040
+        1008
       ],
       "id": "36b11397-01b3-435f-868c-41e52778f454",
       "name": "Append or update row in Campaign Status1",
@@ -2364,7 +2376,7 @@
       "typeVersion": 2,
       "position": [
         -16,
-        1264
+        1232
       ],
       "alwaysOutputData": false
     },
@@ -2496,7 +2508,7 @@
       "typeVersion": 4.7,
       "position": [
         208,
-        1264
+        1232
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -2535,7 +2547,7 @@
       "typeVersion": 4.7,
       "position": [
         -240,
-        1264
+        1232
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -2547,6 +2559,72 @@
           "name": "Mark (SmartWork) Google Account - Dec 12"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cd9932f6-ccde-44ac-bfc6-9c12182379c2",
+              "leftValue": "={{ $json.runMode }}",
+              "rightValue": "FULL",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2448,
+        496
+      ],
+      "id": "06672b56-1d32-4706-a88c-0da1b900594b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cf940a4b-e2ac-4687-bcc4-f3e7a8f7eff5",
+              "leftValue": "={{ $json.runMode }}",
+              "rightValue": "FULL",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2448,
+        688
+      ],
+      "id": "d2ad5090-6b2c-439d-a2a1-74fedba52ce4",
+      "name": "If1"
     }
   ],
   "pinData": {},
@@ -2698,12 +2776,12 @@
             "index": 0
           },
           {
-            "node": "Log Data",
+            "node": "If",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Write Campaign Status",
+            "node": "If1",
             "type": "main",
             "index": 0
           }
@@ -3082,6 +3160,28 @@
           }
         ]
       ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Log Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Write Campaign Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
@@ -3093,7 +3193,7 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": true
   },
-  "versionId": "d70b0566-729e-48c9-89cf-c4713eb0fbf9",
+  "versionId": "9534acbb-fd3c-465c-a377-ea7948158c2c",
   "meta": {
     "templateCredsSetupCompleted": true,
     "aiBuilderAssisted": true,
