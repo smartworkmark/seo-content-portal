@@ -158,6 +158,8 @@ const campaignNames = [
 ];
 
 // Generate mock negative keyword reviews
+const AD_CHANNEL_TYPES = ['Search', 'PMAX'] as const;
+
 function generateNegKeywordReviews(count: number): NegKeywordReview[] {
   const reviews: NegKeywordReview[] = [];
   for (let i = 0; i < count; i++) {
@@ -167,6 +169,7 @@ function generateNegKeywordReviews(count: number): NegKeywordReview[] {
       practiceName: practices[Math.floor(Math.random() * practices.length)],
       companyId: companyIds[Math.floor(Math.random() * companyIds.length)],
       campaignName: campaignNames[Math.floor(Math.random() * campaignNames.length)],
+      adChannelType: AD_CHANNEL_TYPES[Math.floor(Math.random() * AD_CHANNEL_TYPES.length)],
       termsReviewed: Math.floor(Math.random() * 50) + 1,
     });
   }

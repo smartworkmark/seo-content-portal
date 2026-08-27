@@ -214,6 +214,7 @@ function parseNegKeywordReviews(rows: string[][]): NegKeywordReview[] {
   const headers = rows[0].map((h) => h.toLowerCase().trim());
   const practiceIndex = headers.findIndex((h) => h === 'practice' || h === 'practice name');
   const campaignIndex = headers.findIndex((h) => h === 'campaign name');
+  const adChannelTypeIndex = headers.findIndex((h) => h === 'ad channel type');
   const termsIndex = headers.findIndex((h) => h.startsWith('terms review'));
   const dateIndex = headers.findIndex((h) => h === 'date time of review');
   const companyIdIndex = headers.findIndex((h) => h === 'company id' || h === 'companyid');
@@ -224,6 +225,7 @@ function parseNegKeywordReviews(rows: string[][]): NegKeywordReview[] {
     practiceName: row[practiceIndex] || '',
     companyId: companyIdIndex >= 0 ? (row[companyIdIndex] || '') : '',
     campaignName: row[campaignIndex] || '',
+    adChannelType: adChannelTypeIndex >= 0 ? (row[adChannelTypeIndex] || '') : '',
     termsReviewed: parseInt(row[termsIndex], 10) || 0,
   })).filter((review) => review.dateTime && review.practiceName);
 }

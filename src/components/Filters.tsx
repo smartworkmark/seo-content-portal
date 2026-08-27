@@ -37,6 +37,8 @@ interface FiltersProps {
   periodLabel?: string;
   selectedConfidences?: string[];
   onConfidencesChange?: (confidences: string[]) => void;
+  selectedAdChannelTypes?: string[];
+  onAdChannelTypesChange?: (types: string[]) => void;
 }
 
 const MODE_OPTIONS = ['Account-level', 'Campaign-level'] as const;
@@ -45,6 +47,7 @@ const modeLabelToValue = (label: string): 'account' | 'campaign' =>
 const modeValueToLabel = (value: 'account' | 'campaign'): string =>
   value === 'campaign' ? 'Campaign-level' : 'Account-level';
 const CONFIDENCE_OPTIONS: string[] = ['high', 'medium', 'low'];
+const AD_CHANNEL_TYPE_OPTIONS: string[] = ['Search', 'PMAX'];
 
 export function Filters({
   contentType,
@@ -74,6 +77,8 @@ export function Filters({
   periodLabel = '',
   selectedConfidences = [],
   onConfidencesChange,
+  selectedAdChannelTypes = [],
+  onAdChannelTypesChange,
 }: FiltersProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -198,6 +203,20 @@ export function Filters({
                 options={CONFIDENCE_OPTIONS}
                 selected={selectedConfidences}
                 onChange={onConfidencesChange}
+              />
+            </div>
+          )}
+
+          {/* Ad Channel Type Filter — Negative Keywords tab only */}
+          {contentType === 'neg-keywords' && onAdChannelTypesChange && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 whitespace-nowrap">Ad Channel Type:</label>
+              <MultiSelectDropdown
+                label="Ad Channel Type"
+                pluralLabel="Ad Channel Types"
+                options={AD_CHANNEL_TYPE_OPTIONS}
+                selected={selectedAdChannelTypes}
+                onChange={onAdChannelTypesChange}
               />
             </div>
           )}

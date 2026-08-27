@@ -783,6 +783,11 @@ export function DataTable({
                     </button>
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button onClick={() => handleSort('adChannelType')} className="flex items-center gap-1 hover:text-gray-900">
+                      Ad Channel Type <SortIcon column="adChannelType" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     <button onClick={() => handleSort('termsReviewed')} className="flex items-center gap-1 hover:text-gray-900">
                       Terms Reviewed <SortIcon column="termsReviewed" />
                     </button>
@@ -792,7 +797,7 @@ export function DataTable({
               <tbody className="divide-y divide-gray-100">
                 {paginatedData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-16 text-center text-sm text-gray-500">
+                    <td colSpan={6} className="px-4 py-16 text-center text-sm text-gray-500">
                       No negative keyword reviews found for the selected filters.
                     </td>
                   </tr>
@@ -819,6 +824,9 @@ export function DataTable({
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-900">
                         {review.campaignName}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {review.adChannelType || '—'}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         {review.termsReviewed.toLocaleString()}
