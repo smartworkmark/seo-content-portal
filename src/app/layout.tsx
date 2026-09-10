@@ -1,3 +1,4 @@
+import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
@@ -24,8 +25,10 @@ export default function RootLayout({
       <body
         className={`${poppins.variable} antialiased`}
       >
-        {children}
-        <ChatWidget />
+        <ClerkProvider afterSignOutUrl="/">
+          {children}
+          <ChatWidget />
+        </ClerkProvider>
       </body>
     </html>
   );

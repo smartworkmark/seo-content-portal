@@ -1,5 +1,6 @@
 'use client';
 
+import { SignInButton, SignUpButton, Show, UserButton } from '@clerk/nextjs';
 import { useState, useEffect } from 'react';
 import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview } from '@/types';
 import {
@@ -371,6 +372,7 @@ export default function Dashboard() {
               </div>
               <ViewModeToggle showErrors={showErrors} onToggle={handleToggleErrorMode} />
             </div>
+            <div className="flex items-center gap-4">
             <button
               onClick={handleRefresh}
               disabled={isRefreshing || isLoading}
@@ -398,6 +400,24 @@ export default function Dashboard() {
               </svg>
               {isRefreshing ? 'Refreshing...' : 'Refresh'}
             </button>
+            <div className="flex items-center gap-3">
+              <Show when="signed-out">
+                <SignInButton>
+                  <button className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+                    Sign in
+                  </button>
+                </SignInButton>
+                <SignUpButton>
+                  <button className="px-4 py-2 text-sm font-medium text-white bg-indigo-900 hover:bg-indigo-950 rounded-md transition-colors">
+                    Sign up
+                  </button>
+                </SignUpButton>
+              </Show>
+              <Show when="signed-in">
+                <UserButton />
+              </Show>
+            </div>
+            </div>
           </div>
         </div>
       </header>
