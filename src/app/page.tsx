@@ -1,6 +1,7 @@
 'use client';
 
 import { SignInButton, SignUpButton, Show, UserButton } from '@clerk/nextjs';
+import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { ContentType, ErrorContentType, DateRange, SavedFilter, FeatureFilters, NegKeywordReview } from '@/types';
 import {
@@ -576,6 +577,21 @@ export default function Dashboard() {
           />
         </section>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-gray-200 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-gray-500">
+          <span>&copy; {new Date().getFullYear()} DM Agent Portal</span>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy" className="hover:text-gray-700 transition-colors">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="hover:text-gray-700 transition-colors">
+              Terms of Service
+            </Link>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
