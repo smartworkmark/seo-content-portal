@@ -551,6 +551,36 @@ And more generally: **when a status label never self-corrects, look for two inde
 
 ---
 
+## 2026-09-14 — Content Refresh Taking Up to 10s (Performance Investigation)
+
+### Symptoms
+- Dashboard load/refresh took up to ~10s. User suspected it was fetching far more data than the UI (max 90 days) ever displays.
+
+### Root Cause
+Three compounding issues in `fetchAllContent()` (`src/lib/google-sheets.ts`):
+1. 8 separate `values.get` HTTP calls (one per sheet) instead of one `values:batchGet`.
+2. Zero caching anywhere — `cache: 'no-store'` on every fetch, no memoization in the API route — so *every* load/tab-remount/hourly-sync re-fetched and re-parsed all 8 sheets from scratch, even seconds apart.
+3. Full, unbounded history returned to the browser for Blogs/GMB Posts/Replies/Neg Keywords/KW Buildout (only G Ads Pacing was already windowed to 7 days).
+
+### Fix
+- Consolidated the 8 fetches into 1 `batchGet` call, with automatic fallback to the old per-sheet-with-individual-catches path if the batch call fails (batchGet fails *entirely* if any requested sheet doesn't exist — the fallback preserves graceful degradation for optional sheets on older spreadsheets).
+- Added a 45s in-memory server cache + in-flight de-dup around `fetchAllContent`. `forceRefresh` (the manual Refresh button) always bypasses it. This is the change that actually mattered: repeat loads went from ~13s to 0ms.
+- Added a 120-day return-side trim (mirroring the existing G Ads Pacing 7-day trim) for Blogs/GMB Posts/Replies/Neg Keywords/KW Buildout/errors — computed **after** `practices`/`accounts`/summary stats are derived from the full untrimmed arrays, so dormant practices and historical counts don't regress.
+- Negative Keywords specifically: discovered via live measurement that its 80,425 rows span only ~105 days (very high daily volume — multiple rows per practice/campaign/day — not "years of history" like the row count suggests). Added a row-count metadata lookup (cheap, ~400ms) + tail-windowed fetch (last 20,000 rows ≈ 3 weeks), with the header row fetched as its own small range (`A1:Z1`) and merged back on top — **a tail slice starting mid-sheet loses row 1**, which the column-name-matching parser depends on.
+
+### What was investigated and deliberately NOT done: windowing G Ads Pacing's fetch range
+This sheet (96,683 rows × 52 columns, ~5M cells) is ~11 of the ~13 total cold-load seconds — by far the dominant cost, dwarfing Negative Keywords. A "fetch only recent rows" fix seemed obvious but real measurements killed it:
+- **Row growth is heavily back-loaded** (density has been ramping up as more accounts/campaigns are added), so even the tightest safe window — last 10 days + the full previous calendar month (required by `lastMonthGAdsPacing()`, `src/lib/g-ads-pacing.ts:399-423`) — still needs **73% of the sheet's rows**. Not worth the month-boundary edge-case risk for a ~25% cut.
+- **The real cost driver is column count, not row count**: fetching 1 column (96,683 rows) took 710ms; fetching the full `A:BH` (60 columns) took 11.1s — roughly linear in cell count. But `parseGAdsPacing` matches ~39 fields **by header name, not position** (deliberately, per rule #31 below — hand-narrowing the column range would silently drop a column again the next time one is added/reordered, exactly the incident that rule already documents).
+- Conclusion: no safe, worthwhile fix exists within this codebase for the remaining ~11s. A durable one would mean the n8n pipeline maintaining a separate, smaller "current state" table for the portal to read from daily, with full history kept elsewhere — a backend/workflow decision outside this repo, not something to bolt onto the frontend speculatively.
+
+### Rule to Remember
+**Before optimizing a Google Sheets fetch, measure the actual sheet — row count, column count, and date density — via a live script, not code inspection alone.** Column count can dominate fetch time more than row count (a 60-column fetch here was ~15x slower than a 1-column fetch of the same rows). And a sheet's row count can be misleading: 80k rows might span 3 weeks (extremely high density, safe to windowed-fetch) or 96k rows might span 5 months with growth back-loaded into the recent weeks (windowing barely helps, since "recent" already IS most of the sheet). Don't assume high row count ⇒ old data ⇒ safe to truncate — check first.
+
+Also: **a server-side cache is worth far more than reducing fetch payload size**, for any app where the same data is loaded repeatedly in a short window (tab switches, remounts, multiple users). The cache changed repeat loads from ~13s to 0ms; payload/range optimizations on top of that only affect the comparatively rare cold-load case.
+
+---
+
 ## General Debugging Tips
 
 - **Check server logs first** — `GET /` repeating in the Next.js log is a sign of a reload loop, not normal behaviour.
