@@ -34,6 +34,125 @@ async function fetchSheet(sheetName: string, range = 'A:Z'): Promise<string[][]>
   }
 }
 
+const STATIC_SHEET_REQUESTS: readonly { name: string; range: string }[] = [
+  { name: 'Blogs', range: 'A:Z' },
+  { name: 'GMB Posts', range: 'A:Z' },
+  { name: 'GMB Replies', range: 'A:Z' },
+  { name: 'G Ads Pacing', range: 'A:BH' },
+  { name: 'KW Buildout Proposals', range: 'A:Z' },
+  { name: 'Campaign Budgets', range: 'A:AZ' },
+  { name: 'Campaign Budget Status', range: 'A:Z' },
+] as const;
+
+// Negative Keywords is unusually high-volume (multiple rows per practice/campaign/day — tens
+// of thousands of rows spanning only a few months) even though the UI only ever selects up to
+// 7 days of it. Rows are appended in near-chronological order, so a generous tail window (well
+// beyond the 7-day max pill) reliably captures everything currently selectable while fetching a
+// fraction of the sheet. 20k rows covers ~3 weeks at observed volume.
+const NEG_KEYWORDS_SHEET_NAME = 'Negative Keywords';
+const NEG_KEYWORDS_TAIL_ROWS = 20_000;
+
+// Lightweight metadata call (row counts for every sheet, no cell data) used to bound the
+// Negative Keywords range before the main batch fetch.
+async function fetchSheetRowCount(sheetName: string): Promise<number | null> {
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+  const apiKey = process.env.GOOGLE_API_KEY;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties(title,gridProperties.rowCount)&key=${apiKey}`;
+  try {
+    const response = await fetch(url, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const sheets: { properties?: { title?: string; gridProperties?: { rowCount?: number } } }[] = data.sheets || [];
+    const sheet = sheets.find((s) => s.properties?.title === sheetName);
+    return sheet?.properties?.gridProperties?.rowCount ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// A tail window starting partway through the sheet loses row 1 (the header the parser matches
+// column names against), so the header is always fetched as its own small range and merged
+// back onto the front of the tail data before parsing.
+async function negKeywordsRequests(): Promise<{ name: string; range: string }[]> {
+  const rowCount = await fetchSheetRowCount(NEG_KEYWORDS_SHEET_NAME);
+  if (!rowCount || rowCount <= NEG_KEYWORDS_TAIL_ROWS + 1) {
+    return [{ name: NEG_KEYWORDS_SHEET_NAME, range: 'A:Z' }];
+  }
+  const startRow = Math.max(2, rowCount - NEG_KEYWORDS_TAIL_ROWS);
+  return [
+    { name: NEG_KEYWORDS_SHEET_NAME, range: 'A1:Z1' },
+    { name: NEG_KEYWORDS_SHEET_NAME, range: `A${startRow}:Z${rowCount}` },
+  ];
+}
+
+// Fetch every sheet's range in a single HTTP round trip instead of one request per sheet.
+async function fetchSheetsBatch(
+  requests: readonly { name: string; range: string }[]
+): Promise<string[][][]> {
+  const spreadsheetId = process.env.GOOGLE_SHEETS_ID;
+  const apiKey = process.env.GOOGLE_API_KEY;
+  const rangesParam = requests
+    .map((r) => `ranges=${encodeURIComponent(`${r.name}!${r.range}`)}`)
+    .join('&');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?${rangesParam}&key=${apiKey}`;
+
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+  const data = await response.json();
+  const valueRanges: { values?: string[][] }[] = data.valueRanges || [];
+  return requests.map((_, i) => valueRanges[i]?.values || []);
+}
+
+// Merge multiple fetched ranges that share a sheet name (Negative Keywords' header + tail)
+// into one row array per sheet, in request order.
+function mergeRangesByName(
+  requests: readonly { name: string; range: string }[],
+  ranges: string[][][]
+): Map<string, string[][]> {
+  const merged = new Map<string, string[][]>();
+  requests.forEach((req, i) => {
+    const existing = merged.get(req.name);
+    merged.set(req.name, existing ? [...existing, ...ranges[i]] : ranges[i]);
+  });
+  return merged;
+}
+
+// Fetch all sheets, keyed by name. batchGet fails as a whole if any requested sheet doesn't
+// exist (e.g. a newer optional sheet missing from an older spreadsheet) or the row-count
+// lookup itself fails, so fall back to the old full-range per-sheet fetches — each with its
+// own catch — to preserve graceful per-sheet degradation and correctness over speed.
+async function fetchAllSheetData(): Promise<Map<string, string[][]>> {
+  try {
+    const requests = [...STATIC_SHEET_REQUESTS, ...(await negKeywordsRequests())];
+    const ranges = await fetchSheetsBatch(requests);
+    return mergeRangesByName(requests, ranges);
+  } catch (error) {
+    console.error('Batch sheet fetch failed, falling back to per-sheet fetches:', error);
+    const [blogsData, gmbPostsData, repliesData, negKeywordsData, gAdsPacingData, kwBuildoutData, budgetsData, budgetStatusData] = await Promise.all([
+      fetchSheet('Blogs'),
+      fetchSheet('GMB Posts'),
+      fetchSheet('GMB Replies'),
+      fetchSheet(NEG_KEYWORDS_SHEET_NAME).catch(() => [] as string[][]),
+      fetchSheet('G Ads Pacing', 'A:BH').catch(() => [] as string[][]),
+      fetchSheet('KW Buildout Proposals').catch(() => [] as string[][]),
+      fetchSheet('Campaign Budgets', 'A:AZ').catch(() => [] as string[][]),
+      fetchSheet('Campaign Budget Status').catch(() => [] as string[][]),
+    ]);
+    return new Map<string, string[][]>([
+      ['Blogs', blogsData],
+      ['GMB Posts', gmbPostsData],
+      ['GMB Replies', repliesData],
+      [NEG_KEYWORDS_SHEET_NAME, negKeywordsData],
+      ['G Ads Pacing', gAdsPacingData],
+      ['KW Buildout Proposals', kwBuildoutData],
+      ['Campaign Budgets', budgetsData],
+      ['Campaign Budget Status', budgetStatusData],
+    ]);
+  }
+}
+
 // Sanitize blog URL by removing localhost prefixes
 function sanitizeBlogUrl(url: string): string {
   if (!url) return '';
@@ -789,6 +908,18 @@ function parseDate(dateStr: string): Date {
   return isNaN(date.getTime()) ? new Date(0) : date;
 }
 
+// The UI never selects more than 90 days of history (7 for the short-range tabs), so trimming
+// here — after parsing, so practices/accounts/summary still see full history — cuts JSON
+// payload size and client-side filtering work without changing what's actually selectable.
+const CLIENT_WINDOW_DAYS = 120;
+
+function windowRecent<T>(records: T[], getDate: (r: T) => string, days = CLIENT_WINDOW_DAYS): T[] {
+  const threshold = new Date();
+  threshold.setDate(threshold.getDate() - (days - 1));
+  threshold.setHours(0, 0, 0, 0);
+  return records.filter((r) => parseDate(getDate(r)) >= threshold);
+}
+
 // Calculate summary statistics
 function calculateSummary(
   blogs: BlogPost[],
@@ -842,8 +973,44 @@ function calculateErrorSummary(
   };
 }
 
+// Short-lived server-side cache so rapid repeat loads (a second tab, a remount, a quick
+// reload) don't each pay the full fetch+parse cost. forceRefresh (the manual "Refresh"
+// button) always bypasses this and performs a real fetch, then repopulates the cache so the
+// next normal load benefits too. The hourly auto-sync also goes through the normal path, so
+// it naturally refreshes the cache roughly once an hour regardless of the TTL.
+const CACHE_TTL_MS = 45_000;
+let cachedResponse: { data: ContentResponse; fetchedAt: number } | null = null;
+let inFlightFetch: Promise<ContentResponse> | null = null;
+
 // Main function to fetch all content
 export async function fetchAllContent(forceRefresh = false): Promise<ContentResponse> {
+  if (!forceRefresh) {
+    if (cachedResponse && Date.now() - cachedResponse.fetchedAt < CACHE_TTL_MS) {
+      return cachedResponse.data;
+    }
+    // Two near-simultaneous loads (e.g. two tabs) share one in-flight fetch instead of each
+    // triggering their own full 8-sheet pull.
+    if (inFlightFetch) {
+      return inFlightFetch;
+    }
+  }
+
+  const fetchPromise = fetchAllContentUncached(forceRefresh);
+  if (!forceRefresh) {
+    inFlightFetch = fetchPromise;
+  }
+  try {
+    const result = await fetchPromise;
+    cachedResponse = { data: result, fetchedAt: Date.now() };
+    return result;
+  } finally {
+    if (!forceRefresh) {
+      inFlightFetch = null;
+    }
+  }
+}
+
+async function fetchAllContentUncached(forceRefresh: boolean): Promise<ContentResponse> {
   // Use mock data if Google Sheets is not configured
   if (!isConfigured()) {
     console.log('Google Sheets not configured, using mock data');
@@ -851,17 +1018,15 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
   }
 
   try {
-    // Fetch all sheets in parallel (newer sheets may not exist yet — gracefully return empty)
-    const [blogsData, gmbPostsData, repliesData, negKeywordsData, gAdsPacingData, kwBuildoutData, budgetsData, budgetStatusData] = await Promise.all([
-      fetchSheet('Blogs'),
-      fetchSheet('GMB Posts'),
-      fetchSheet('GMB Replies'),
-      fetchSheet('Negative Keywords').catch(() => [] as string[][]),
-      fetchSheet('G Ads Pacing', 'A:BH').catch(() => [] as string[][]),
-      fetchSheet('KW Buildout Proposals').catch(() => [] as string[][]),
-      fetchSheet('Campaign Budgets', 'A:AZ').catch(() => [] as string[][]),
-      fetchSheet('Campaign Budget Status').catch(() => [] as string[][]),
-    ]);
+    const sheetData = await fetchAllSheetData();
+    const blogsData = sheetData.get('Blogs') ?? [];
+    const gmbPostsData = sheetData.get('GMB Posts') ?? [];
+    const repliesData = sheetData.get('GMB Replies') ?? [];
+    const negKeywordsData = sheetData.get(NEG_KEYWORDS_SHEET_NAME) ?? [];
+    const gAdsPacingData = sheetData.get('G Ads Pacing') ?? [];
+    const kwBuildoutData = sheetData.get('KW Buildout Proposals') ?? [];
+    const budgetsData = sheetData.get('Campaign Budgets') ?? [];
+    const budgetStatusData = sheetData.get('Campaign Budget Status') ?? [];
 
     const { valid: blogs, errors: blogErrors } = parseBlogs(blogsData);
     const { valid: gmbPosts, errors: gmbPostErrors } = parseGmbPosts(gmbPostsData);
@@ -909,20 +1074,23 @@ export async function fetchAllContent(forceRefresh = false): Promise<ContentResp
 
     const accounts = [...new Set(replies.map((r) => r.accountName))].sort();
 
+    // Trim to the window the UI can actually select (mirrors the existing G Ads Pacing 7-day
+    // trim above). practices/accounts/summary/errorSummary were already computed from the
+    // full, untrimmed arrays, so dormant practices and historical counts aren't affected.
     return {
-      blogs,
-      gmbPosts,
-      replies,
-      negKeywordReviews,
+      blogs: windowRecent(blogs, (b) => b.date),
+      gmbPosts: windowRecent(gmbPosts, (p) => p.date),
+      replies: windowRecent(replies, (r) => r.dateTime),
+      negKeywordReviews: windowRecent(negKeywordReviews, (n) => n.dateTime),
       gAdsPacing: recentGAdsPacing,
       pausedGAdsPacing,
       lastMonthGAdsPacing: lastMonthPacing,
-      kwBuildout,
+      kwBuildout: windowRecent(kwBuildout, (k) => k.loggedAt),
       summary: calculateSummary(blogs, gmbPosts, replies, negKeywordReviews, gAdsPacing, kwBuildout),
       practices,
       accounts,
-      blogErrors,
-      gmbPostErrors,
+      blogErrors: windowRecent(blogErrors, (e) => e.date),
+      gmbPostErrors: windowRecent(gmbPostErrors, (e) => e.date),
       errorSummary: calculateErrorSummary(blogErrors, gmbPostErrors),
     };
   } catch (error) {
