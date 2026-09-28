@@ -364,6 +364,7 @@ const VALID_RECOMMENDATIONS: readonly RecommendationType[] = [
   'BUDGET_DECREASE',
   'BUDGET_INCREASE',
   'DOW_ADJUSTMENT',
+  'MONTH_START_RESET',
   'NO_CHANGE',
 ] as const;
 

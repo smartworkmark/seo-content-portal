@@ -70,6 +70,9 @@ export type RecommendationType =
   | 'BUDGET_DECREASE'
   | 'BUDGET_INCREASE'
   | 'DOW_ADJUSTMENT'
+  // Day 1 only (from 2026-10-01): the agent reset the campaign's daily budget to its monthly
+  // allocation ÷ days in month. Auto-applied, never pending approval.
+  | 'MONTH_START_RESET'
   | 'NO_CHANGE';
 
 export type ApprovalStatus = '' | 'Approved' | 'Rejected';
