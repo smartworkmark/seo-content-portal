@@ -424,7 +424,7 @@ export function lastMonthGAdsPacing(
 
 // Single source of truth for a historical pacing row's client status. A matching pause event
 // overrides only that exact run date; all other rows retain their own daily status.
-// Precedence: matching pause date → Paused, month-start grace → null ("New"), then the row's
+// Precedence: matching pause date → Paused, month-start grace/reset → null ("New"), then the row's
 // display_status column, then the variance-derived fallback.
 export function resolveDisplayStatus(
   record: Pick<
@@ -436,7 +436,7 @@ export function resolveDisplayStatus(
   // healthy tier over an empty campaign list — this override takes precedence over everything.
   if (allCampaignsPaused(record)) return 'Paused (cap reached)';
   if (isPausedOnRunDate(record)) return 'Paused';
-  if (shouldShowGraceBanner(record)) return null;
+  if (isMonthStartRecord(record)) return null;
   return normalizeDisplayStatus(record.displayStatus) ?? displayStatusFromVariance(record.variancePercent);
 }
 
@@ -502,6 +502,12 @@ export const RECOMMENDATION_LABELS: Record<
     pill: 'bg-teal-50 ring-1 ring-teal-200',
     text: 'text-teal-700',
   },
+  // Same sky style as the other auto-applied changes — never pending approval.
+  MONTH_START_RESET: {
+    label: 'Month-start reset',
+    pill: 'bg-sky-50 ring-1 ring-sky-200',
+    text: 'text-sky-700',
+  },
   NO_CHANGE: {
     label: 'No change',
     pill: 'bg-slate-100 ring-1 ring-slate-200',
@@ -531,6 +537,9 @@ export interface CampaignBudgetView {
   // must keep meaning *actually applied* movement — hasAppliedChange() depends on it.
   ifApprovedTarget: number;   // proposedDaily
   ifApprovedDeltaPct: number; // (proposedDaily - current) / current * 100
+  // Day-1 reset to monthly allocation ÷ days in month. Always mode 'auto'; labelled as its own
+  // status so it isn't mistaken for an ordinary pacing adjustment.
+  isMonthStartReset: boolean;
 }
 
 export function campaignBudgetView(
@@ -571,6 +580,7 @@ export function campaignBudgetView(
     direction,
     ifApprovedTarget,
     ifApprovedDeltaPct,
+    isMonthStartReset: campaign.recommendationType === 'MONTH_START_RESET',
   };
 }
 
@@ -588,6 +598,8 @@ export function appliedStatusLabel(
     if (approvalStatus === 'Rejected') return 'Rejected';
     return view.mode === 'pause' ? 'Pause (pending)' : 'Needs approval';
   }
+  // Labelled even when flat: the reset still happened, it just landed on the current budget.
+  if (view.isMonthStartReset) return 'Month-start reset';
   if (view.direction === 'flat') return 'No change';
   return 'Auto-applied';
 }
@@ -762,9 +774,21 @@ export function budgetLimitedCount(record: Pick<GAdsPacingRecord, 'campaigns'>):
 }
 
 // Banner predicates for the detail panel.
+// "No actions taken" banner: grace-only. A month-start reset IS an action, so any reset
+// campaign suppresses it.
 export function shouldShowGraceBanner(record: Pick<GAdsPacingRecord, 'campaigns'>): boolean {
   if (record.campaigns.length === 0) return false;
   return record.campaigns.every((c) => c.skipReason === 'MONTH_START_GRACE');
+}
+
+// Day-1 status: every campaign is either in grace or was reset to its allocation. Either way the
+// month-to-date variance is one day old and meaningless, so the account reads "New" — reset rows
+// have a blank skip_reason, so keying on grace alone would drop them into a variance tier.
+export function isMonthStartRecord(record: Pick<GAdsPacingRecord, 'campaigns'>): boolean {
+  if (record.campaigns.length === 0) return false;
+  return record.campaigns.every(
+    (c) => c.skipReason === 'MONTH_START_GRACE' || c.recommendationType === 'MONTH_START_RESET',
+  );
 }
 
 export function shouldShowInvestigateBanner(
@@ -786,6 +810,8 @@ export function shouldShowConflictIcon(
 ): boolean {
   if (!campaign.conflictsWithPacing) return false;
   if (campaign.recommendationType === 'NO_CHANGE' || campaign.recommendationType === '') return false;
+  // A month-start reset is a mechanical re-baseline, not a pacing decision — nothing to conflict with.
+  if (campaign.recommendationType === 'MONTH_START_RESET') return false;
   if (campaign.skipReason) return false;
   return true;
 }
@@ -812,6 +838,7 @@ export function shouldShowUtilBar(
 export const DOW_FLAG_LABELS: Record<string, string> = {
   CATCH_UP_HALVED: 'catch-up: shaping halved',
   MONTH_END_SUPPRESSED: 'suppressed near month-end',
+  MONTH_START_RESET: 'month-start reset',
 };
 
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
